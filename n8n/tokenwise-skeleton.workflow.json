@@ -1,0 +1,115 @@
+{
+  "name": "TokenWise Skeleton",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tokenwise",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "node-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-40, 300],
+      "webhookId": "tokenwise-skeleton"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nreturn [{ json: {\n  request_id: 'r-' + Date.now(),\n  prompt: body.prompt || '',\n  policy_mode: body.policy_mode || 'balanced'\n} }];"
+      },
+      "id": "node-normalize",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [180, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://guardrails-service:8000/check/input",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $json.request_id, prompt: $json.prompt, policy_mode: $json.policy_mode }) }}",
+        "options": {}
+      },
+      "id": "node-guardrails",
+      "name": "Guardrails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://rag-cache-service:8000/cache/lookup",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ prompt: $('Normalize').item.json.prompt, dept_id: 'demo', task_type: 'general' }) }}",
+        "options": {}
+      },
+      "id": "node-cache",
+      "name": "Cache",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [620, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://optimizer-service:8000/agent/run",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $('Normalize').item.json.request_id, prompt: $('Normalize').item.json.prompt, policy_mode: $('Normalize').item.json.policy_mode, guardrail_status: $('Guardrails').item.json.guardrail_status, cache_status: $('Cache').item.json.cache_status }) }}",
+        "options": {}
+      },
+      "id": "node-optimizer",
+      "name": "Optimizer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [840, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const optimizer = $json;\nconst guardrail = $('Guardrails').item.json;\nconst cache = $('Cache').item.json;\nreturn [{ json: {\n  answer: 'This is a mock answer from TokenWise (Day 1-2 skeleton). Real model routing comes later.',\n  receipt: {\n    guardrail_status: guardrail.guardrail_status,\n    cache_status: cache.cache_status,\n    selected_tier: optimizer.selected_tier,\n    estimated_tokens: optimizer.estimated_tokens,\n    estimated_cost: optimizer.estimated_cost,\n    optimization_reason: optimizer.optimization_reason,\n    cost_saved: optimizer.cost_saved\n  }\n} }];"
+      },
+      "id": "node-build",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1060, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              { "name": "Access-Control-Allow-Origin", "value": "*" }
+            ]
+          }
+        }
+      },
+      "id": "node-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1280, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
+    "Normalize": { "main": [[{ "node": "Guardrails", "type": "main", "index": 0 }]] },
+    "Guardrails": { "main": [[{ "node": "Cache", "type": "main", "index": 0 }]] },
+    "Cache": { "main": [[{ "node": "Optimizer", "type": "main", "index": 0 }]] },
+    "Optimizer": { "main": [[{ "node": "Build Response", "type": "main", "index": 0 }]] },
+    "Build Response": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

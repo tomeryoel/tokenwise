@@ -1,0 +1,71 @@
+# TokenWise - walking skeleton (Day 1-2)
+# Brings up: 4 FastAPI services, n8n orchestrator, React UI.
+# Langfuse is intentionally left as a commented placeholder (Day 9).
+
+services:
+  guardrails-service:
+    build: ./services/guardrails-service
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+
+  rag-cache-service:
+    build: ./services/rag-cache-service
+    ports:
+      - "8002:8000"
+    restart: unless-stopped
+
+  image-analyser-service:
+    build: ./services/image-analyser-service
+    ports:
+      - "8003:8000"
+    restart: unless-stopped
+
+  optimizer-service:
+    build: ./services/optimizer-service
+    ports:
+      - "8004:8000"
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_SECURE_COOKIE=false
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      # Allow the browser (React dev server) to call the webhook directly.
+      - N8N_CORS_ALLOW_ORIGIN=*
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - guardrails-service
+      - rag-cache-service
+      - optimizer-service
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      # Browser talks to n8n on the host; empty/failed -> UI falls back to mock.
+      - VITE_N8N_WEBHOOK_URL=http://localhost:5678/webhook/tokenwise
+    depends_on:
+      - n8n
+    restart: unless-stopped
+
+  # --- Langfuse placeholder (NOT enabled in the skeleton) ---------------------
+  # Langfuse v3 needs Postgres + ClickHouse + Redis, which is too heavy for the
+  # skeleton. It will be added on Day 9. Left here as documentation only.
+  # langfuse:
+  #   image: langfuse/langfuse:latest
+  #   ports:
+  #     - "3000:3000"
+
+volumes:
+  n8n_data:
