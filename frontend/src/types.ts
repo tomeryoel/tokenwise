@@ -8,6 +8,8 @@ export interface DecisionReceipt {
   estimated_cost: number;
   optimization_reason: string;
   cost_saved: number;
+  detected_risk_type?: string | null;
+  reason?: string | null;
 }
 
 export interface RunResponse {

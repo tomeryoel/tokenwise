@@ -15,22 +15,59 @@ All services listen on port 8000 inside their container. Host ports (docker-comp
 
 Every service exposes `GET /health -> {"status": "ok", "service": "<name>"}`.
 
-## guardrails-service
+## guardrails-service (Day 3: real MVP rules)
 
 ### POST /check/input
 Request:
 ```json
 { "request_id": "r1", "prompt": "How do I reset my password?", "policy_mode": "balanced" }
 ```
-Response (mock):
+Response (full contract; values depend on the rules that fire):
 ```json
-{ "guardrail_status": "passed", "reason": null, "contains_sensitive_data": false,
-  "require_local_model": false, "cost_saved_by_blocking": 0 }
+{
+  "pass": true,
+  "reason": "passed",
+  "policy_triggered": null,
+  "severity": "low",
+  "detected_risk_type": null,
+  "contains_sensitive_data": false,
+  "requires_redaction": false,
+  "recommended_route": "external",
+  "allow_external_model": true,
+  "require_local_model": false,
+  "require_human_approval": false,
+  "estimated_cost_risk": "low",
+  "estimated_tokens": 7,
+  "cost_saved_by_blocking": 0.0,
+  "safe_text": "How do I reset my password?",
+  "redacted_text": null
+}
 ```
+
+Rule outcomes (checked in this order):
+
+| Rule | pass | reason | detected_risk_type | policy_triggered |
+|---|---|---|---|---|
+| Empty / whitespace | false | empty_prompt | low_value_prompt | cost_governance |
+| Prompt injection | false | prompt_injection_detected | prompt_injection | safety_governance |
+| Secret / API key | false | secret_detected | secret | safety_governance |
+| PII (email/phone/id) | true | pii_detected_redacted | pii | safety_governance |
+| Too short (<3 words) | false | too_short_or_low_value_prompt | low_value_prompt | cost_governance |
+| Off-topic | false | off_topic_cost_block | off_topic | cost_governance |
+| Otherwise | true | passed | null | null |
+
+Secrets/PII populate `safe_text` / `redacted_text` with `[REDACTED_SECRET]`,
+`[REDACTED_EMAIL]`, `[REDACTED_PHONE]`, `[REDACTED_ID]`. Short-command
+exceptions ("summarize this", "translate this", "explain this") bypass the
+too-short rule.
 
 ### POST /check/output
 Request: `{ "request_id": "r1", "answer": "..." }`
-Response: `{ "guardrail_status": "passed", "redacted_text": null }`
+Response: `{ "pass": true, "issues": [], "redacted_text": null }`
+- Redacts leaked secrets (adds issue `leaked_secret_redacted`).
+- Flags unsupported ROI claims (e.g. "guaranteed savings", "100% cost reduction",
+  "always saves money") as `unsupported_roi_claim:<phrase>` and sets `pass=false`.
+- NOTE: implemented but not yet wired into the n8n workflow (Day 3 scope).
 
 ## rag-cache-service
 

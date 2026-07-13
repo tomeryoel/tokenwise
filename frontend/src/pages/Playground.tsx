@@ -90,6 +90,11 @@ export default function Playground({ policyMode, setPolicyMode }: Props) {
                 value={money(result.receipt?.estimated_cost)}
               />
               <Receipt label="cost_saved" value={money(result.receipt?.cost_saved)} />
+              <Receipt label="reason" value={val(result.receipt?.reason)} />
+              <Receipt
+                label="detected_risk_type"
+                value={val(result.receipt?.detected_risk_type)}
+              />
               <Receipt
                 label="optimization_reason"
                 value={val(result.receipt?.optimization_reason)}
