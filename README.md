@@ -82,7 +82,7 @@ This starts:
 | Component | URL |
 |---|---|
 | React UI | http://localhost:5173 |
-| n8n | http://localhost:5678 |
+| n8n | http://localhost:5679 |
 | guardrails-service | http://localhost:8001/health |
 | rag-cache-service | http://localhost:8002/health |
 | image-analyser-service | http://localhost:8003/health |
@@ -108,8 +108,12 @@ Each returns `{"status":"ok","service":"..."}`.
 
 ```powershell
 $body = @{ prompt = "How do I reset my password?"; policy_mode = "balanced" } | ConvertTo-Json
-Invoke-RestMethod -Uri "http://localhost:5678/webhook/tokenwise" -Method Post -Body $body -ContentType "application/json"
+Invoke-RestMethod -Uri "http://localhost:5679/webhook/tokenwise" -Method Post -Body $body -ContentType "application/json"
 ```
+
+> Note: n8n is published on host port **5679** (not the default 5678) so it does
+> not collide with any other n8n you may already run on this machine. Inside the
+> compose network n8n still listens on 5678.
 
 Returns `{ answer, receipt }` where `receipt` contains `guardrail_status`,
 `cache_status`, `selected_tier`, `estimated_tokens`, `estimated_cost`,
