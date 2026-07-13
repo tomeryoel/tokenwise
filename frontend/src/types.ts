@@ -3,6 +3,8 @@ export type PolicyMode = "conservative" | "balanced" | "aggressive";
 export interface DecisionReceipt {
   guardrail_status: string;
   cache_status: string;
+  cache_confidence?: number | null;
+  cache_entry_id?: string | null;
   selected_tier: string;
   estimated_tokens: number;
   estimated_cost: number;

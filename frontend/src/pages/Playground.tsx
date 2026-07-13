@@ -84,6 +84,11 @@ export default function Playground({ policyMode, setPolicyMode }: Props) {
                 value={val(result.receipt?.output_guardrail_status)}
               />
               <Receipt label="cache_status" value={val(result.receipt?.cache_status)} />
+              <Receipt
+                label="cache_confidence"
+                value={val(result.receipt?.cache_confidence)}
+              />
+              <Receipt label="cache_entry_id" value={val(result.receipt?.cache_entry_id)} />
               <Receipt label="selected_tier" value={val(result.receipt?.selected_tier)} />
               <Receipt
                 label="estimated_tokens"
