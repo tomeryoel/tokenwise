@@ -10,6 +10,10 @@ export interface DecisionReceipt {
   cost_saved: number;
   detected_risk_type?: string | null;
   reason?: string | null;
+  output_guardrail_status?: string | null;
+  output_guardrail_issues?: string[] | null;
+  savings_source?: string | null;
+  savings_reason?: string | null;
 }
 
 export interface RunResponse {

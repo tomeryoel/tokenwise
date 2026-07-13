@@ -79,6 +79,10 @@ export default function Playground({ policyMode, setPolicyMode }: Props) {
 
             <div className="receipt">
               <Receipt label="guardrail_status" value={val(result.receipt?.guardrail_status)} />
+              <Receipt
+                label="output_guardrail_status"
+                value={val(result.receipt?.output_guardrail_status)}
+              />
               <Receipt label="cache_status" value={val(result.receipt?.cache_status)} />
               <Receipt label="selected_tier" value={val(result.receipt?.selected_tier)} />
               <Receipt
@@ -90,10 +94,17 @@ export default function Playground({ policyMode, setPolicyMode }: Props) {
                 value={money(result.receipt?.estimated_cost)}
               />
               <Receipt label="cost_saved" value={money(result.receipt?.cost_saved)} />
+              <Receipt label="savings_source" value={val(result.receipt?.savings_source)} />
+              <Receipt label="savings_reason" value={val(result.receipt?.savings_reason)} />
               <Receipt label="reason" value={val(result.receipt?.reason)} />
               <Receipt
                 label="detected_risk_type"
                 value={val(result.receipt?.detected_risk_type)}
+              />
+              <Receipt
+                label="output_guardrail_issues"
+                value={list(result.receipt?.output_guardrail_issues)}
+                wide
               />
               <Receipt
                 label="optimization_reason"
@@ -117,6 +128,11 @@ function val(v: unknown): string {
 function money(v: unknown): string {
   if (typeof v !== "number" || Number.isNaN(v)) return "-";
   return `$${v}`;
+}
+
+function list(v: unknown): string {
+  if (Array.isArray(v) && v.length > 0) return v.join(", ");
+  return "-";
 }
 
 function Receipt({
