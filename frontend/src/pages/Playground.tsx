@@ -62,39 +62,56 @@ export default function Playground({ policyMode, setPolicyMode }: Props) {
 
       {result && (
         <div className="result">
-          {result.usedMock && (
-            <div className="banner-warn">
-              Temporary local mock (n8n webhook not reachable).
-            </div>
-          )}
-
           <h2>Answer</h2>
           <div className="answer">{result.answer}</div>
 
-          <h2>Decision Receipt</h2>
-          <div className="receipt">
-            <Receipt label="Guardrail" value={result.receipt.guardrail_status} />
-            <Receipt label="Cache" value={result.receipt.cache_status} />
-            <Receipt label="Selected tier" value={result.receipt.selected_tier} />
-            <Receipt
-              label="Estimated tokens"
-              value={String(result.receipt.estimated_tokens)}
-            />
-            <Receipt
-              label="Estimated cost"
-              value={`$${result.receipt.estimated_cost}`}
-            />
-            <Receipt label="Cost saved" value={`$${result.receipt.cost_saved}`} />
-            <Receipt
-              label="Reason"
-              value={result.receipt.optimization_reason}
-              wide
-            />
-          </div>
+          {/* Decision Receipt: title always visible; open by default. */}
+          <details className="receipt-details" open>
+            <summary>Decision Receipt</summary>
+
+            <div
+              className={
+                result.usedMock ? "source-badge mock" : "source-badge live"
+              }
+            >
+              Source: {result.usedMock ? "frontend mock fallback" : "n8n webhook"}
+            </div>
+
+            <div className="receipt">
+              <Receipt label="guardrail_status" value={val(result.receipt?.guardrail_status)} />
+              <Receipt label="cache_status" value={val(result.receipt?.cache_status)} />
+              <Receipt label="selected_tier" value={val(result.receipt?.selected_tier)} />
+              <Receipt
+                label="estimated_tokens"
+                value={val(result.receipt?.estimated_tokens)}
+              />
+              <Receipt
+                label="estimated_cost"
+                value={money(result.receipt?.estimated_cost)}
+              />
+              <Receipt label="cost_saved" value={money(result.receipt?.cost_saved)} />
+              <Receipt
+                label="optimization_reason"
+                value={val(result.receipt?.optimization_reason)}
+                wide
+              />
+            </div>
+          </details>
         </div>
       )}
     </div>
   );
+}
+
+// Defensive formatters so a missing/odd field never crashes the receipt render.
+function val(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "-";
+  return String(v);
+}
+
+function money(v: unknown): string {
+  if (typeof v !== "number" || Number.isNaN(v)) return "-";
+  return `$${v}`;
 }
 
 function Receipt({
