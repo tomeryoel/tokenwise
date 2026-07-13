@@ -15,18 +15,18 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-120, 340],
+      "position": [-320, 360],
       "webhookId": "tokenwise-skeleton"
     },
     {
       "parameters": {
-        "jsCode": "const body = $json.body || $json;\nreturn [{ json: {\n  request_id: 'r-' + Date.now(),\n  prompt: body.prompt || '',\n  policy_mode: body.policy_mode || 'balanced'\n} }];"
+        "jsCode": "const body = $json.body || $json;\nreturn [{ json: {\n  request_id: 'r-' + Date.now(),\n  prompt: body.prompt || '',\n  policy_mode: body.policy_mode || 'balanced',\n  dept_id: body.dept_id || 'demo-support',\n  task_type: body.task_type || 'general'\n} }];"
       },
       "id": "node-normalize",
       "name": "Normalize",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [80, 340]
+      "position": [-120, 360]
     },
     {
       "parameters": {
@@ -41,7 +41,7 @@
       "name": "Guardrails",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [280, 340]
+      "position": [80, 360]
     },
     {
       "parameters": {
@@ -71,7 +71,7 @@
       "name": "Guardrail Passed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [480, 340]
+      "position": [280, 360]
     },
     {
       "parameters": {
@@ -79,14 +79,69 @@
         "url": "http://rag-cache-service:8000/cache/lookup",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ prompt: ($('Guardrails').item.json.safe_text || $('Normalize').item.json.prompt), dept_id: 'demo', task_type: 'general' }) }}",
+        "jsonBody": "={{ JSON.stringify({ query: ($('Guardrails').item.json.safe_text || $('Normalize').item.json.prompt), dept_id: $('Normalize').item.json.dept_id, task_type: $('Normalize').item.json.task_type, threshold: 0.88, contains_sensitive_data: ($('Guardrails').item.json.contains_sensitive_data || false) }) }}",
         "options": {}
       },
-      "id": "node-cache",
-      "name": "Cache",
+      "id": "node-cache-lookup",
+      "name": "Cache Lookup",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [700, 200]
+      "position": [500, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-hit",
+              "leftValue": "={{ $json.hit }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-if-hit",
+      "name": "Cache Hit?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [700, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://guardrails-service:8000/check/output",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $('Normalize').item.json.request_id, answer: $('Cache Lookup').item.json.answer }) }}",
+        "options": {}
+      },
+      "id": "node-guardrails-output-cached",
+      "name": "Output Guardrails (cached)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "const outGuard = $json;\nconst cache = $('Cache Lookup').item.json;\nconst guardrail = $('Guardrails').item.json;\nconst cachedAnswer = cache.answer;\n\nlet answer;\nlet outStatus;\nif (outGuard.pass === false) {\n  answer = 'The generated response was blocked by the output guardrail.';\n  outStatus = 'blocked';\n} else {\n  answer = (outGuard.redacted_text && outGuard.redacted_text !== cachedAnswer) ? outGuard.redacted_text : cachedAnswer;\n  outStatus = 'passed';\n}\n\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: 'passed',\n    output_guardrail_status: outStatus,\n    output_guardrail_issues: outGuard.issues || [],\n    cache_status: 'hit',\n    cache_confidence: cache.confidence,\n    cache_entry_id: cache.entry_id,\n    selected_tier: 'cache',\n    estimated_tokens: (cache.estimated_tokens != null ? cache.estimated_tokens : 0),\n    estimated_cost: 0,\n    optimization_reason: 'semantic_cache_hit',\n    cost_saved: (cache.cost_saved != null ? cache.cost_saved : 0),\n    detected_risk_type: guardrail.detected_risk_type || null,\n    reason: 'semantic_cache_hit',\n    savings_source: 'semantic_cache',\n    savings_reason: 'semantic_cache_hit'\n  }\n} }];"
+      },
+      "id": "node-build-cached",
+      "name": "Build Cached Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 120]
     },
     {
       "parameters": {
@@ -94,24 +149,24 @@
         "url": "http://optimizer-service:8000/agent/run",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ request_id: $('Normalize').item.json.request_id, prompt: ($('Guardrails').item.json.safe_text || $('Normalize').item.json.prompt), policy_mode: $('Normalize').item.json.policy_mode, guardrail_status: 'passed', cache_status: $('Cache').item.json.cache_status }) }}",
+        "jsonBody": "={{ JSON.stringify({ request_id: $('Normalize').item.json.request_id, prompt: ($('Guardrails').item.json.safe_text || $('Normalize').item.json.prompt), policy_mode: $('Normalize').item.json.policy_mode, guardrail_status: 'passed', cache_status: 'miss' }) }}",
         "options": {}
       },
       "id": "node-optimizer",
       "name": "Optimizer",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [900, 200]
+      "position": [920, 380]
     },
     {
       "parameters": {
-        "jsCode": "// Mock model provider. Real Ollama / external LLM comes later.\nreturn [{ json: {\n  answer: 'This is a mock answer from TokenWise (Day 1-3 skeleton). Real model routing comes later.'\n} }];"
+        "jsCode": "// Mock model provider. Real Ollama / external LLM comes later.\nreturn [{ json: {\n  answer: 'This is a mock answer from TokenWise (Day 1-4 skeleton). Real model routing comes later.'\n} }];"
       },
       "id": "node-model",
       "name": "Mock Model",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1100, 200]
+      "position": [1120, 380]
     },
     {
       "parameters": {
@@ -126,27 +181,43 @@
       "name": "Guardrails Output",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1300, 200]
+      "position": [1320, 380]
     },
     {
       "parameters": {
-        "jsCode": "const outGuard = $json;\nconst optimizer = $('Optimizer').item.json;\nconst guardrail = $('Guardrails').item.json;\nconst cache = $('Cache').item.json;\nconst modelAnswer = $('Mock Model').item.json.answer;\n\nlet answer;\nlet outStatus;\nif (outGuard.pass === false) {\n  answer = 'The generated response was blocked by the output guardrail.';\n  outStatus = 'blocked';\n} else {\n  answer = (outGuard.redacted_text && outGuard.redacted_text !== modelAnswer) ? outGuard.redacted_text : modelAnswer;\n  outStatus = 'passed';\n}\n\nconst inStatus = guardrail.requires_redaction ? 'passed_with_redaction' : 'passed';\n\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: inStatus,\n    output_guardrail_status: outStatus,\n    output_guardrail_issues: outGuard.issues || [],\n    cache_status: cache.cache_status,\n    selected_tier: optimizer.selected_tier,\n    estimated_tokens: optimizer.estimated_tokens,\n    estimated_cost: optimizer.estimated_cost,\n    optimization_reason: optimizer.optimization_reason,\n    cost_saved: optimizer.cost_saved,\n    detected_risk_type: guardrail.detected_risk_type || null,\n    reason: guardrail.reason || 'passed',\n    savings_source: 'model_routing',\n    savings_reason: 'cheaper_model_selected'\n  }\n} }];"
+        "method": "POST",
+        "url": "http://rag-cache-service:8000/cache/store",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: ($('Guardrails').item.json.safe_text || $('Normalize').item.json.prompt), answer: ($json.redacted_text || $('Mock Model').item.json.answer), dept_id: $('Normalize').item.json.dept_id, task_type: $('Normalize').item.json.task_type, contains_sensitive_data: ($('Guardrails').item.json.contains_sensitive_data || false), output_guardrail_passed: ($json.pass !== false) }) }}",
+        "options": {}
+      },
+      "id": "node-cache-store",
+      "name": "Cache Store",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 380],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const outGuard = $('Guardrails Output').item.json;\nconst optimizer = $('Optimizer').item.json;\nconst guardrail = $('Guardrails').item.json;\nconst cache = $('Cache Lookup').item.json;\nconst modelAnswer = $('Mock Model').item.json.answer;\n\nlet answer;\nlet outStatus;\nif (outGuard.pass === false) {\n  answer = 'The generated response was blocked by the output guardrail.';\n  outStatus = 'blocked';\n} else {\n  answer = (outGuard.redacted_text && outGuard.redacted_text !== modelAnswer) ? outGuard.redacted_text : modelAnswer;\n  outStatus = 'passed';\n}\n\nconst inStatus = guardrail.requires_redaction ? 'passed_with_redaction' : 'passed';\n\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: inStatus,\n    output_guardrail_status: outStatus,\n    output_guardrail_issues: outGuard.issues || [],\n    cache_status: 'miss',\n    cache_confidence: (cache.confidence != null ? cache.confidence : 0),\n    cache_entry_id: null,\n    selected_tier: optimizer.selected_tier,\n    estimated_tokens: optimizer.estimated_tokens,\n    estimated_cost: optimizer.estimated_cost,\n    optimization_reason: optimizer.optimization_reason,\n    cost_saved: optimizer.cost_saved,\n    detected_risk_type: guardrail.detected_risk_type || null,\n    reason: guardrail.reason || 'passed',\n    savings_source: 'model_routing',\n    savings_reason: 'cheaper_model_selected'\n  }\n} }];"
       },
       "id": "node-build",
       "name": "Build Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1500, 200]
+      "position": [1720, 380]
     },
     {
       "parameters": {
-        "jsCode": "const g = $json;\nconst tokens = (g.estimated_tokens != null) ? g.estimated_tokens : 0;\nconst saved = g.cost_saved_by_blocking || 0;\nreturn [{ json: {\n  answer: 'Request blocked by TokenWise guardrails: ' + (g.reason || 'blocked'),\n  receipt: {\n    guardrail_status: 'blocked',\n    output_guardrail_status: 'skipped',\n    output_guardrail_issues: [],\n    cache_status: 'skipped',\n    selected_tier: 'none',\n    estimated_tokens: tokens,\n    estimated_cost: 0,\n    optimization_reason: 'Blocked: ' + (g.reason || '') + (g.policy_triggered ? ' [' + g.policy_triggered + ']' : ''),\n    cost_saved: saved,\n    detected_risk_type: g.detected_risk_type || null,\n    reason: g.reason || 'blocked',\n    savings_source: 'guardrails_cost_governance',\n    savings_reason: g.reason || 'blocked'\n  }\n} }];"
+        "jsCode": "const g = $json;\nconst tokens = (g.estimated_tokens != null) ? g.estimated_tokens : 0;\nconst saved = g.cost_saved_by_blocking || 0;\nreturn [{ json: {\n  answer: 'Request blocked by TokenWise guardrails: ' + (g.reason || 'blocked'),\n  receipt: {\n    guardrail_status: 'blocked',\n    output_guardrail_status: 'skipped',\n    output_guardrail_issues: [],\n    cache_status: 'skipped',\n    cache_confidence: 0,\n    cache_entry_id: null,\n    selected_tier: 'none',\n    estimated_tokens: tokens,\n    estimated_cost: 0,\n    optimization_reason: 'Blocked: ' + (g.reason || '') + (g.policy_triggered ? ' [' + g.policy_triggered + ']' : ''),\n    cost_saved: saved,\n    detected_risk_type: g.detected_risk_type || null,\n    reason: g.reason || 'blocked',\n    savings_source: 'guardrails_cost_governance',\n    savings_reason: g.reason || 'blocked'\n  }\n} }];"
       },
       "id": "node-build-blocked",
       "name": "Build Blocked",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [700, 460]
+      "position": [500, 500]
     },
     {
       "parameters": {
@@ -164,7 +235,7 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1720, 340]
+      "position": [1940, 240]
     }
   ],
   "connections": {
@@ -173,14 +244,23 @@
     "Guardrails": { "main": [[{ "node": "Guardrail Passed?", "type": "main", "index": 0 }]] },
     "Guardrail Passed?": {
       "main": [
-        [{ "node": "Cache", "type": "main", "index": 0 }],
+        [{ "node": "Cache Lookup", "type": "main", "index": 0 }],
         [{ "node": "Build Blocked", "type": "main", "index": 0 }]
       ]
     },
-    "Cache": { "main": [[{ "node": "Optimizer", "type": "main", "index": 0 }]] },
+    "Cache Lookup": { "main": [[{ "node": "Cache Hit?", "type": "main", "index": 0 }]] },
+    "Cache Hit?": {
+      "main": [
+        [{ "node": "Output Guardrails (cached)", "type": "main", "index": 0 }],
+        [{ "node": "Optimizer", "type": "main", "index": 0 }]
+      ]
+    },
+    "Output Guardrails (cached)": { "main": [[{ "node": "Build Cached Response", "type": "main", "index": 0 }]] },
+    "Build Cached Response": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
     "Optimizer": { "main": [[{ "node": "Mock Model", "type": "main", "index": 0 }]] },
     "Mock Model": { "main": [[{ "node": "Guardrails Output", "type": "main", "index": 0 }]] },
-    "Guardrails Output": { "main": [[{ "node": "Build Response", "type": "main", "index": 0 }]] },
+    "Guardrails Output": { "main": [[{ "node": "Cache Store", "type": "main", "index": 0 }]] },
+    "Cache Store": { "main": [[{ "node": "Build Response", "type": "main", "index": 0 }]] },
     "Build Response": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
     "Build Blocked": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
   },
