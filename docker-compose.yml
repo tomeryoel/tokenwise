@@ -13,6 +13,20 @@ services:
     build: ./services/rag-cache-service
     ports:
       - "8002:8000"
+    environment:
+      # Semantic cache config. Chroma + HF model cache both live under /app/data
+      # so a single named volume gives persistence across restarts and avoids
+      # re-downloading the embedding model every time.
+      - CACHE_SIMILARITY_THRESHOLD=0.88
+      - CHROMA_DIR=/app/data/chroma
+      - HF_HOME=/app/data/hf
+      - TOKENIZERS_PARALLELISM=false
+      # The HF Xet transfer backend can stall in some networks; force plain HTTPS
+      # downloads and disable telemetry for a reliable first model fetch.
+      - HF_HUB_DISABLE_XET=1
+      - HF_HUB_DISABLE_TELEMETRY=1
+    volumes:
+      - rag_cache_data:/app/data
     restart: unless-stopped
 
   image-analyser-service:
@@ -71,3 +85,4 @@ services:
 
 volumes:
   n8n_data:
+  rag_cache_data:
