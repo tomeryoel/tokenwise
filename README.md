@@ -7,10 +7,9 @@ providers. Every AI request passes through TokenWise, which optimizes it before
 it reaches a model (guardrails, semantic cache, dynamic routing, compression),
 then reports the savings.
 
-> This repository currently contains the **Day 1-2 walking skeleton**: a working
-> end-to-end path through all four layers with **mocked logic** inside each layer.
-> Real guardrails, embeddings, LangGraph decisions, PyTorch training, Langfuse
-> tracing and external LLM calls are added in later phases.
+> **Status:** four-layer end-to-end path is working. **Guardrails (Day 3)** and the
+> **semantic cache (Day 4)** are now real. LangGraph decisions, PyTorch training,
+> Langfuse tracing and external LLM calls are still mocked / added in later phases.
 
 ## Architecture (four layers)
 
@@ -128,15 +127,37 @@ click **Run with TokenWise**, and read the answer + Decision Receipt.
 > "temporary local mock" banner so it is still demonstrable. Import + activate the
 > workflow to exercise the real Layer 2 -> Layer 3 path.
 
-## What is mocked in this skeleton
+## Semantic cache (Day 4)
 
-- Guardrails always pass; no PII/secrets/injection detection yet.
-- Cache always misses; no embeddings yet.
-- Optimizer returns a static-ish plan (numbers derived from prompt length).
+The `rag-cache-service` is a **real** semantic cache:
+
+- Embeddings: `sentence-transformers/all-MiniLM-L6-v2` (CPU only).
+- Store: ChromaDB persistent client at `/app/data/chroma` on the `rag_cache_data`
+  volume; the HF model is cached at `/app/data/hf` on the same volume so it is not
+  re-downloaded on every restart. **Cache entries survive container restarts.**
+- Similarity: cosine, `confidence = clamp(1 - cosine_distance, 0, 1)`; default
+  threshold `0.88` (env `CACHE_SIMILARITY_THRESHOLD`, overridable per request).
+- Department isolation: lookups filter by `dept_id` metadata (default `demo-support`).
+- Sensitive requests (`contains_sensitive_data=true`, e.g. PII) are never searched
+  or stored.
+
+On a cache hit, n8n **skips the optimizer and mock model**, runs the cached answer
+through the output guardrail, and returns it with `savings_source=semantic_cache`.
+On a miss, the model path runs and the safe final answer is stored (best-effort).
+
+> First lookup/store after a cold start downloads the MiniLM model (~90 MB) into
+> the volume; subsequent restarts reuse it.
+
+## What is still mocked
+
+- Optimizer returns a static-ish plan (numbers derived from prompt length); no
+  LangGraph decisions yet.
 - Image analyser returns a fixed class; not wired into the flow yet.
 - Model answer is a fixed mock string; no Ollama/external LLM yet.
 - Dashboard shows mock metrics; no usage DB yet.
 - Langfuse is a commented placeholder in docker-compose.
+
+Real: guardrails (Day 3) and semantic cache (Day 4).
 
 ## Frontend without Docker (optional)
 

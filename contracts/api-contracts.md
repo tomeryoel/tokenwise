@@ -67,21 +67,69 @@ Response: `{ "pass": true, "issues": [], "redacted_text": null }`
 - Redacts leaked secrets (adds issue `leaked_secret_redacted`).
 - Flags unsupported ROI claims (e.g. "guaranteed savings", "100% cost reduction",
   "always saves money") as `unsupported_roi_claim:<phrase>` and sets `pass=false`.
-- NOTE: implemented but not yet wired into the n8n workflow (Day 3 scope).
+- Wired into the n8n workflow: runs on both the model answer (cache miss) and the
+  cached answer (cache hit) before responding.
 
-## rag-cache-service
+## rag-cache-service (Day 4: real semantic cache)
+
+Real semantic cache backed by **sentence-transformers/all-MiniLM-L6-v2** (CPU)
+embeddings and **ChromaDB** persistent storage.
+
+- **Normalization:** trim, collapse whitespace, lowercase (embeddings normalized).
+- **Similarity space:** Chroma `hnsw:space=cosine`. `query()` returns a cosine
+  *distance* = `1 - cosine_similarity`.
+- **Distance -> confidence:** `confidence = clamp(1 - distance, 0.0, 1.0)`.
+  A larger distance always means a lower confidence.
+- **Threshold:** default `0.88`, from env `CACHE_SIMILARITY_THRESHOLD` and
+  overridable per-request via the `threshold` field.
+- **Department isolation:** lookups filter Chroma by `where={"dept_id": <dept>}`,
+  so `support` entries are never returned for `engineering`. Default dept when
+  the caller omits one is `demo-support`.
+- **Sensitive-data exclusion:** requests with `contains_sensitive_data=true` are
+  neither searched nor stored.
+- **Persistence:** Chroma data lives at `/app/data/chroma` on the `rag_cache_data`
+  named volume (HF model cached at `/app/data/hf`), so entries and the model
+  survive container restarts.
+- **Cost model:** deterministic `$0.03 / 1k tokens` premium baseline; on a hit
+  `cost_saved = estimated_tokens * 0.00003`.
 
 ### POST /cache/lookup
-Request: `{ "prompt": "...", "dept_id": "demo", "task_type": "general" }`
-Response (mock): `{ "cache_status": "miss", "confidence": 0.0, "answer": null }`
+Request:
+```json
+{ "query": "How can TokenWise reduce LLM costs?", "dept_id": "support",
+  "task_type": "general", "threshold": 0.88, "contains_sensitive_data": false }
+```
+Response on hit:
+```json
+{ "hit": true, "confidence": 0.94, "answer": "...", "entry_id": "ab12...",
+  "dept_id": "support", "estimated_tokens": 16, "cost_saved": 0.00048,
+  "threshold": 0.88, "reason": "semantic_cache_hit" }
+```
+Response on miss:
+```json
+{ "hit": false, "confidence": 0.62, "answer": null, "entry_id": null,
+  "dept_id": "support", "estimated_tokens": 16, "cost_saved": 0.0,
+  "threshold": 0.88, "reason": "below_similarity_threshold" }
+```
+Other `reason` values: `sensitive_request_not_cacheable`, `empty_query`,
+`no_entries_for_dept`. (`query` is preferred; `prompt` still accepted.)
 
 ### POST /cache/store
-Request: `{ "prompt": "...", "answer": "...", "dept_id": "demo" }`
-Response: `{ "stored": true }`
+Request:
+```json
+{ "query": "...", "answer": "...", "dept_id": "support", "task_type": "general",
+  "contains_sensitive_data": false, "output_guardrail_passed": true }
+```
+Response: `{ "stored": true, "entry_id": "ab12...", "reason": "stored" }`
+
+Storage is skipped (with `stored: false` and a `reason`) when
+`contains_sensitive_data=true` (`sensitive_not_cacheable`),
+`output_guardrail_passed=false` (`output_guardrail_failed`),
+empty query (`empty_query`), or empty answer (`empty_answer`).
 
 ### POST /policy/query
 Request: `{ "prompt": "...", "k": 3 }`
-Response (mock): `{ "policies": [] }`
+Response (basic placeholder): `{ "policies": [] }`
 
 ## image-analyser-service
 
@@ -109,17 +157,45 @@ Response (mock):
 
 ## Final response returned by n8n to the UI
 
+Cache miss (model path):
 ```json
 {
   "answer": "This is a mock answer from TokenWise.",
   "receipt": {
     "guardrail_status": "passed",
+    "output_guardrail_status": "passed",
+    "output_guardrail_issues": [],
     "cache_status": "miss",
+    "cache_confidence": 0.61,
+    "cache_entry_id": null,
     "selected_tier": "cheap",
-    "estimated_tokens": 42,
-    "estimated_cost": 0.00021,
-    "optimization_reason": "Low complexity, no sensitive data -> cheap tier (mock)",
-    "cost_saved": 0.0018
+    "estimated_tokens": 16,
+    "estimated_cost": 0.000008,
+    "optimization_reason": "[MOCK] policy_mode=balanced, cache=miss ... -> cheap tier",
+    "cost_saved": 0.000472,
+    "savings_source": "model_routing",
+    "savings_reason": "cheaper_model_selected"
+  }
+}
+```
+
+Cache hit (semantic cache path - optimizer and model skipped):
+```json
+{
+  "answer": "This is a mock answer from TokenWise.",
+  "receipt": {
+    "guardrail_status": "passed",
+    "output_guardrail_status": "passed",
+    "cache_status": "hit",
+    "cache_confidence": 0.94,
+    "cache_entry_id": "ab12...",
+    "selected_tier": "cache",
+    "estimated_tokens": 16,
+    "estimated_cost": 0,
+    "optimization_reason": "semantic_cache_hit",
+    "cost_saved": 0.00048,
+    "savings_source": "semantic_cache",
+    "savings_reason": "semantic_cache_hit"
   }
 }
 ```

@@ -49,7 +49,7 @@ flowchart TB
     N8N -. "traces (later)" .-> LF
 ```
 
-## Request flow in the skeleton
+## Request flow (with real guardrails + semantic cache)
 
 ```mermaid
 sequenceDiagram
@@ -59,16 +59,28 @@ sequenceDiagram
     participant C as rag-cache-service
     participant O as optimizer-service
 
-    UI->>N: POST /webhook/tokenwise {prompt, policy_mode}
+    UI->>N: POST /webhook/tokenwise {prompt, policy_mode, dept_id}
     N->>N: Normalize request
     N->>G: POST /check/input
-    G-->>N: {guardrail_status: "passed"}
-    N->>C: POST /cache/lookup
-    C-->>N: {cache_status: "miss", confidence: 0}
-    N->>O: POST /agent/run
-    O-->>N: {selected_tier, estimated_tokens, estimated_cost, optimization_reason, cost_saved}
-    N->>N: Build mock model answer
-    N-->>UI: {answer, receipt}
+    alt input blocked
+        G-->>N: {pass:false, reason}
+        N-->>UI: blocked answer + receipt (short-circuit)
+    else input passed
+        N->>C: POST /cache/lookup (dept_id filtered)
+        alt cache hit (confidence >= threshold)
+            C-->>N: {hit:true, confidence, answer, entry_id}
+            N->>G: POST /check/output (cached answer)
+            N-->>UI: cached answer + receipt (savings_source=semantic_cache)
+        else cache miss
+            C-->>N: {hit:false, confidence}
+            N->>O: POST /agent/run
+            O-->>N: {selected_tier, tokens, cost, cost_saved}
+            N->>N: Mock model answer
+            N->>G: POST /check/output (model answer)
+            N->>C: POST /cache/store (best-effort, safe answer)
+            N-->>UI: answer + receipt (savings_source=model_routing)
+        end
+    end
 ```
 
 ## What is real vs mocked in this step
@@ -78,8 +90,8 @@ sequenceDiagram
 | React UI (Playground/Dashboard/Admin) | Real (minimal) |
 | n8n orchestration workflow | Real wiring, mock logic |
 | 4 FastAPI services + /health | Real services, mock responses |
-| Guardrails logic | Mocked (always "passed") |
-| Semantic cache / embeddings | Mocked (always "miss") |
+| Guardrails logic | Real (Day 3: rules + regex, input & output) |
+| Semantic cache / embeddings | Real (Day 4: MiniLM + ChromaDB, cosine, dept isolation) |
 | LangGraph optimizer decision | Mocked (static plan) |
 | PyTorch image analysis | Mocked (static class) |
 | Model provider call | Mocked answer string |
