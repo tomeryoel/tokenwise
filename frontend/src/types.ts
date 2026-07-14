@@ -27,6 +27,9 @@ export interface DecisionReceipt {
   estimated_baseline_cost?: number | null;
   estimated_optimized_cost?: number | null;
   decision_reasons?: string[] | null;
+  graph_path?: string | null;
+  branch_reason?: string | null;
+  executed_nodes?: string[] | null;
 }
 
 export interface RunResponse {

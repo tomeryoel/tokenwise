@@ -111,6 +111,8 @@ export default function Playground({ policyMode, setPolicyMode }: Props) {
                 value={list(result.receipt?.output_guardrail_issues)}
                 wide
               />
+              <Receipt label="graph_path" value={val(result.receipt?.graph_path)} />
+              <Receipt label="branch_reason" value={val(result.receipt?.branch_reason)} wide />
               <Receipt label="task_type" value={val(result.receipt?.task_type)} />
               <Receipt
                 label="complexity_level"
@@ -152,6 +154,18 @@ export default function Playground({ policyMode, setPolicyMode }: Props) {
                 wide
               />
             </div>
+
+            {Array.isArray(result.receipt?.executed_nodes) &&
+              result.receipt.executed_nodes.length > 0 && (
+                <div className="receipt-reasons">
+                  <span className="receipt-label">executed_nodes</span>
+                  <ul>
+                    {result.receipt.executed_nodes.map((n, i) => (
+                      <li key={i}>{n}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
             {Array.isArray(result.receipt?.decision_reasons) &&
               result.receipt.decision_reasons.length > 0 && (
