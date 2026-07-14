@@ -1,0 +1,58 @@
+{
+  "id": "tokenwiseusagesummary",
+  "name": "TokenWise Usage Summary",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "tokenwise-usage-summary",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "node-webhook-summary",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "tokenwise-usage-summary"
+    },
+    {
+      "parameters": {
+        "url": "=http://optimizer-service:8000/usage/summary?period_days={{ $json.query?.period_days || 30 }}{{ $json.query?.dept_id ? '&dept_id=' + $json.query.dept_id : '' }}",
+        "options": {}
+      },
+      "id": "node-fetch-summary",
+      "name": "Fetch Usage Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              { "name": "Access-Control-Allow-Origin", "value": "*" }
+            ]
+          }
+        }
+      },
+      "id": "node-respond-summary",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [440, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Fetch Usage Summary", "type": "main", "index": 0 }]] },
+    "Fetch Usage Summary": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

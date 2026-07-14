@@ -266,6 +266,42 @@
     },
     {
       "parameters": {
+        "jsCode": "function safeItems(name) {\n  try { return $items(name); } catch (e) { return []; }\n}\nconst body = $json;\nconst receipt = body.receipt || {};\nconst norm = $('Normalize').item.json;\nconst guardItems = safeItems('Guardrails');\nconst guard = guardItems.length ? guardItems[0].json : {};\nconst optItems = safeItems('Optimizer');\nconst optimizer = optItems.length ? optItems[0].json : {};\n\nlet status = 'completed';\nif (receipt.guardrail_status === 'blocked') status = 'blocked';\nelse if (receipt.output_guardrail_status === 'blocked') status = 'output_blocked';\nelse if (receipt.error_code) status = 'provider_failed';\n\nconst promptForFingerprint = guard.safe_text || norm.prompt || '';\nconst baseline = receipt.estimated_baseline_cost != null ? receipt.estimated_baseline_cost : (optimizer.estimated_baseline_cost || receipt.cost_saved || 0);\nconst optimized = receipt.estimated_optimized_cost != null ? receipt.estimated_optimized_cost : (optimizer.estimated_optimized_cost || 0);\nconst estimatedSavings = receipt.cost_saved != null ? receipt.cost_saved : (optimizer.cost_saved || 0);\n\nreturn [{ json: {\n  answer: body.answer,\n  receipt: receipt,\n  usage_log: {\n    request_id: norm.request_id,\n    dept_id: norm.dept_id,\n    policy_mode: norm.policy_mode,\n    prompt: promptForFingerprint,\n    task_type: receipt.task_type || optimizer.task_type || norm.task_type || 'general',\n    complexity_level: receipt.complexity_level || optimizer.complexity_level || null,\n    guardrail_status: receipt.guardrail_status || 'passed',\n    guardrail_reason: receipt.reason || guard.reason || null,\n    detected_risk_type: receipt.detected_risk_type || guard.detected_risk_type || null,\n    cache_status: receipt.cache_status || 'miss',\n    cache_confidence: receipt.cache_confidence || 0,\n    graph_path: receipt.graph_path || optimizer.graph_path || null,\n    status: status,\n    provider: receipt.provider || null,\n    model: receipt.model || null,\n    requested_tier: receipt.requested_tier || receipt.selected_tier || null,\n    executed_tier: receipt.executed_tier || null,\n    actual_input_tokens: receipt.actual_input_tokens || 0,\n    actual_output_tokens: receipt.actual_output_tokens || 0,\n    actual_total_tokens: receipt.actual_total_tokens || 0,\n    actual_cost: receipt.actual_cost,\n    cost_calculation_status: receipt.cost_calculation_status || null,\n    latency_ms: receipt.latency_ms || 0,\n    used_fallback: receipt.used_fallback || false,\n    fallback_reason: receipt.fallback_reason || null,\n    privacy_enforced: receipt.privacy_enforced || false,\n    actual_execution_attempt_count: receipt.actual_execution_attempt_count || 0,\n    savings_source: receipt.savings_source || 'unknown',\n    savings_reason: receipt.savings_reason || null,\n    estimated_baseline_cost: baseline,\n    estimated_optimized_cost: optimized,\n    estimated_savings: estimatedSavings,\n    actual_cost_saved: receipt.actual_cost_saved,\n    output_guardrail_status: receipt.output_guardrail_status || 'skipped',\n    output_guardrail_issues: receipt.output_guardrail_issues || []\n  }\n} }];"
+      },
+      "id": "node-prepare-usage",
+      "name": "Prepare Usage Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1920, 360]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://optimizer-service:8000/usage/log",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.usage_log) }}",
+        "options": {}
+      },
+      "id": "node-usage-log",
+      "name": "Usage Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2120, 360],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const prep = $('Prepare Usage Log').item.json;\nreturn [{ json: { answer: prep.answer, receipt: prep.receipt } }];"
+      },
+      "id": "node-pass-through",
+      "name": "Pass Through Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2320, 360]
+    },
+    {
+      "parameters": {
         "respondWith": "json",
         "responseBody": "={{ JSON.stringify($json) }}",
         "options": {
@@ -280,7 +316,7 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1940, 240]
+      "position": [2520, 360]
     }
   ],
   "connections": {
@@ -301,7 +337,7 @@
       ]
     },
     "Output Guardrails (cached)": { "main": [[{ "node": "Build Cached Response", "type": "main", "index": 0 }]] },
-    "Build Cached Response": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
+    "Build Cached Response": { "main": [[{ "node": "Prepare Usage Log", "type": "main", "index": 0 }]] },
     "Optimizer": { "main": [[{ "node": "Provider Execute", "type": "main", "index": 0 }]] },
     "Provider Execute": { "main": [[{ "node": "Provider Success?", "type": "main", "index": 0 }]] },
     "Provider Success?": {
@@ -312,9 +348,12 @@
     },
     "Guardrails Output": { "main": [[{ "node": "Cache Store", "type": "main", "index": 0 }]] },
     "Cache Store": { "main": [[{ "node": "Build Response", "type": "main", "index": 0 }]] },
-    "Build Response": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
-    "Build Provider Error": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
-    "Build Blocked": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+    "Build Response": { "main": [[{ "node": "Prepare Usage Log", "type": "main", "index": 0 }]] },
+    "Build Provider Error": { "main": [[{ "node": "Prepare Usage Log", "type": "main", "index": 0 }]] },
+    "Build Blocked": { "main": [[{ "node": "Prepare Usage Log", "type": "main", "index": 0 }]] },
+    "Prepare Usage Log": { "main": [[{ "node": "Usage Log", "type": "main", "index": 0 }]] },
+    "Usage Log": { "main": [[{ "node": "Pass Through Response", "type": "main", "index": 0 }]] },
+    "Pass Through Response": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
   },
   "active": false,
   "settings": { "executionOrder": "v1" },
