@@ -111,12 +111,59 @@ export default function Playground({ policyMode, setPolicyMode }: Props) {
                 value={list(result.receipt?.output_guardrail_issues)}
                 wide
               />
+              <Receipt label="task_type" value={val(result.receipt?.task_type)} />
+              <Receipt
+                label="complexity_level"
+                value={val(result.receipt?.complexity_level)}
+              />
+              <Receipt
+                label="complexity_score"
+                value={val(result.receipt?.complexity_score)}
+              />
+              <Receipt
+                label="compression_recommended"
+                value={val(result.receipt?.compression_recommended)}
+              />
+              <Receipt
+                label="compression_target_ratio"
+                value={val(result.receipt?.compression_target_ratio)}
+              />
+              <Receipt
+                label="compression_risk"
+                value={val(result.receipt?.compression_risk)}
+              />
+              <Receipt label="fallback_tier" value={val(result.receipt?.fallback_tier)} />
+              <Receipt
+                label="estimated_baseline_cost"
+                value={money(result.receipt?.estimated_baseline_cost)}
+              />
+              <Receipt
+                label="estimated_optimized_cost"
+                value={money(result.receipt?.estimated_optimized_cost)}
+              />
+              <Receipt
+                label="compression_reason"
+                value={val(result.receipt?.compression_reason)}
+                wide
+              />
               <Receipt
                 label="optimization_reason"
                 value={val(result.receipt?.optimization_reason)}
                 wide
               />
             </div>
+
+            {Array.isArray(result.receipt?.decision_reasons) &&
+              result.receipt.decision_reasons.length > 0 && (
+                <div className="receipt-reasons">
+                  <span className="receipt-label">decision_reasons</span>
+                  <ul>
+                    {result.receipt.decision_reasons.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
           </details>
         </div>
       )}

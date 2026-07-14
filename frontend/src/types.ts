@@ -16,6 +16,17 @@ export interface DecisionReceipt {
   output_guardrail_issues?: string[] | null;
   savings_source?: string | null;
   savings_reason?: string | null;
+  task_type?: string | null;
+  complexity_score?: number | null;
+  complexity_level?: string | null;
+  compression_recommended?: boolean | null;
+  compression_target_ratio?: number | null;
+  compression_reason?: string | null;
+  compression_risk?: string | null;
+  fallback_tier?: string | null;
+  estimated_baseline_cost?: number | null;
+  estimated_optimized_cost?: number | null;
+  decision_reasons?: string[] | null;
 }
 
 export interface RunResponse {
