@@ -21,6 +21,7 @@ class ProviderExecuteRequest(BaseModel):
     contains_sensitive_data: bool = False
     require_local_model: bool = False
     allow_external_model: bool = True
+    prompt_redaction_applied: bool = False
     estimated_tokens: int = 0
     estimated_baseline_cost: float = 0.0
     estimated_optimized_cost: float = 0.0
@@ -31,9 +32,11 @@ class ProviderAttempt(BaseModel):
     provider: str
     tier: str
     model: str = ""
+    executed: bool = False
     success: bool
     error_code: str | None = None
     error_message: str | None = None
+    attempt_role: str = "primary"  # primary | fallback | configuration_check
 
 
 class ProviderExecuteResponse(BaseModel):
@@ -55,7 +58,9 @@ class ProviderExecuteResponse(BaseModel):
     fallback_reason: str | None = None
     privacy_enforced: bool = False
     privacy_reason: str | None = None
+    prompt_redaction_applied: bool = False
     cost_calculation_status: str = "not_applicable"
     attempts: list[ProviderAttempt] = Field(default_factory=list)
+    actual_execution_attempt_count: int = 0
     error_code: str | None = None
     error_message: str | None = None
