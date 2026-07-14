@@ -1,19 +1,25 @@
-"""TokenWise Optimization Engine - a real, deterministic LangGraph state graph.
+"""TokenWise Optimization Engine - a real, CONDITIONAL LangGraph state graph.
 
-This is the Day 5 replacement for the mocked optimizer. It is an explicit
-multi-node graph that consumes request signals (prompt, policy_mode, guardrail
-result, cache result, optional image fields) and produces a structured
-Optimization Plan (selected tier, compression recommendation, fallback plan,
-cost/savings estimate, and human-readable decision reasons).
+Day 5.1 upgrade: the graph is no longer structurally linear. After input
+normalization and signal evaluation, a router (`route_request_path`) uses
+LangGraph *conditional edges* to send each request down one of five distinct
+execution paths:
 
-No LLM is used inside the graph - all decisions are deterministic rules so the
-result is testable and academically defensible. LangGraph gives us an explicit,
-inspectable state machine rather than one big if/else function.
+    reject_path | cache_path | local_only_path | vision_path | standard_optimization_path
+
+The standard path itself contains a second conditional edge
+(`should_recommend_compression`) that runs the compression-recommendation node
+only when the request actually warrants it (compression_path vs
+skip_compression_path). All paths converge into cost estimation + final plan.
+
+This is why LangGraph is used instead of a plain sequential pipeline: distinct,
+inspectable branches with real conditional transitions. No LLM is used inside
+the graph - every decision is deterministic and testable. Actual prompt
+compression is NOT performed here (recommendation only).
 """
 from __future__ import annotations
 
 import operator
-import re
 from typing import Annotated, Any, Optional, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -33,6 +39,8 @@ TIER_PRICE_PER_1K: dict[str, float] = {
     "fallback": 0.003,
 }
 PREMIUM_TIER = "premium"
+CACHE_THRESHOLD = 0.88
+VISION_COMPLEXITY_THRESHOLD = 0.5
 
 # Compression target ratios (fraction of tokens kept).
 RATIO_NONE = 1.0
@@ -78,7 +86,10 @@ class OptimizerState(TypedDict, total=False):
     estimated_baseline_cost: float
     estimated_optimized_cost: float
     estimated_savings: float
-    # decision_reasons accumulates across nodes via the operator.add reducer
+    # observability
+    graph_path: str
+    branch_reason: str
+    executed_nodes: Annotated[list[str], operator.add]
     decision_reasons: Annotated[list[str], operator.add]
     optimization_plan: dict[str, Any]
 
@@ -127,8 +138,17 @@ def clamp01(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
+def _compression_thresholds(mode: str) -> tuple[int, int]:
+    """(long_threshold, very_long_threshold) in tokens, per policy mode."""
+    if mode == "aggressive":
+        return 150, 400
+    if mode == "conservative":
+        return 400, 800
+    return 250, 600
+
+
 # --------------------------------------------------------------------------- #
-# Nodes
+# Shared prefix nodes
 # --------------------------------------------------------------------------- #
 def normalize_inputs(state: OptimizerState) -> dict[str, Any]:
     prompt = state.get("prompt") or ""
@@ -148,6 +168,7 @@ def normalize_inputs(state: OptimizerState) -> dict[str, Any]:
         "cache_status": (state.get("cache_status") or "miss").lower(),
         "cache_confidence": float(state.get("cache_confidence") or 0.0),
         "guardrail_status": (state.get("guardrail_status") or "passed").lower(),
+        "executed_nodes": ["normalize_inputs"],
         "decision_reasons": [f"normalized: policy_mode={mode}, tokens={tokens}"],
     }
 
@@ -175,11 +196,11 @@ def classify_task(state: OptimizerState) -> dict[str, Any]:
     elif (hit := _contains_any(text, QA_KEYWORDS)):
         task, reason = "simple_qa", f"question keyword '{hit}'"
 
-    # Image is used only when no stronger textual signal dominates.
     if has_image and task in {"unknown", "simple_qa"}:
         task, reason = "image_analysis", "image attached with no stronger text signal"
 
-    return {"task_type": task, "decision_reasons": [f"task_type={task} ({reason})"]}
+    return {"task_type": task, "executed_nodes": ["classify_task"],
+            "decision_reasons": [f"task_type={task} ({reason})"]}
 
 
 def estimate_complexity(state: OptimizerState) -> dict[str, Any]:
@@ -191,12 +212,10 @@ def estimate_complexity(state: OptimizerState) -> dict[str, Any]:
     factors: list[str] = []
     score = 0.0
 
-    # 1) length signal (capped)
     length_signal = clamp01(tokens / 400.0) * 0.30
     score += length_signal
     factors.append(f"length {tokens}t->{round(length_signal, 2)}")
 
-    # 2) task-type base weight
     task_weight = {
         "simple_qa": 0.05, "support_request": 0.10, "translation": 0.15,
         "summarization": 0.20, "image_analysis": 0.35, "code": 0.45,
@@ -205,26 +224,22 @@ def estimate_complexity(state: OptimizerState) -> dict[str, Any]:
     score += task_weight
     factors.append(f"task {task}->{task_weight}")
 
-    # 3) reasoning keyword density
     reasoning_hits = sum(1 for k in REASONING_KEYWORDS if k in text)
     if reasoning_hits:
         bump = min(0.20, reasoning_hits * 0.07)
         score += bump
         factors.append(f"reasoning x{reasoning_hits}->+{round(bump, 2)}")
 
-    # 4) code / document signal
     if task in {"code", "document_analysis"}:
         score += 0.10
         factors.append("code/doc->+0.1")
 
-    # 5) image complexity signal
     img_c = float(state.get("image_complexity") or 0.0)
     if state.get("has_image") and img_c > 0:
         bump = clamp01(img_c) * 0.15
         score += bump
         factors.append(f"image->+{round(bump, 2)}")
 
-    # 6) explicit quality requirement raises the floor
     quality = (state.get("quality_requirement") or "").lower()
     if quality == "high":
         score += 0.10
@@ -233,7 +248,6 @@ def estimate_complexity(state: OptimizerState) -> dict[str, Any]:
     score = round(clamp01(score), 3)
     level = "low" if score <= 0.30 else "medium" if score <= 0.65 else "high"
 
-    # Derive quality_requirement if not explicitly provided.
     if quality not in {"low", "medium", "high"}:
         if level == "high" or task in {"complex_reasoning", "document_analysis"}:
             quality = "high"
@@ -246,6 +260,7 @@ def estimate_complexity(state: OptimizerState) -> dict[str, Any]:
         "complexity_score": score,
         "complexity_level": level,
         "quality_requirement": quality,
+        "executed_nodes": ["estimate_complexity"],
         "decision_reasons": [
             f"complexity={score} ({level}) [{'; '.join(factors)}]",
             f"quality_requirement={quality}",
@@ -257,29 +272,124 @@ def evaluate_sensitivity(state: OptimizerState) -> dict[str, Any]:
     sensitive = bool(state.get("contains_sensitive_data", False))
     require_local = bool(state.get("require_local_model", False)) or sensitive
     allow_external = bool(state.get("allow_external_model", True)) and not require_local
-    reasons = []
-    if require_local:
-        reasons.append("sensitive/require_local -> external models prohibited")
-    else:
-        reasons.append("no sensitive data; external models permitted")
+    reason = ("sensitive/require_local -> external models prohibited"
+              if require_local else "no sensitive data; external models permitted")
     return {
         "require_local_model": require_local,
         "allow_external_model": allow_external,
         "contains_sensitive_data": sensitive,
-        "decision_reasons": reasons,
+        "executed_nodes": ["evaluate_sensitivity"],
+        "decision_reasons": [reason],
     }
 
 
 def evaluate_cache_signal(state: OptimizerState) -> dict[str, Any]:
-    """Defensive: optimizer is normally skipped on a cache hit, but if a hit
-    signal arrives we honor it as a valid 'cache' tier."""
     status = state.get("cache_status", "miss")
     conf = float(state.get("cache_confidence") or 0.0)
-    if status == "hit" and conf >= 0.88:
-        return {"decision_reasons": [f"cache hit signal (conf={conf}) -> cache tier eligible"]}
-    return {"decision_reasons": []}
+    reasons = []
+    if status == "hit" and conf >= CACHE_THRESHOLD:
+        reasons.append(f"cache hit signal (conf={conf}) meets threshold")
+    return {"executed_nodes": ["evaluate_cache_signal"], "decision_reasons": reasons}
 
 
+def route_request_path(state: OptimizerState) -> dict[str, Any]:
+    """Decide which execution path this request takes and record it. The actual
+    LangGraph conditional edge (see `_pick_path`) reads `graph_path` from here."""
+    if state.get("guardrail_status") == "blocked":
+        path = "reject_path"
+        reason = f"guardrail blocked ({state.get('guardrail_reason', 'blocked')})"
+    elif (state.get("cache_status") == "hit"
+          and float(state.get("cache_confidence") or 0.0) >= CACHE_THRESHOLD):
+        path = "cache_path"
+        reason = f"cache hit (conf={state.get('cache_confidence')}) >= {CACHE_THRESHOLD}"
+    elif state.get("require_local_model") or not state.get("allow_external_model", True):
+        path = "local_only_path"
+        reason = "privacy: sensitive/require_local -> local only"
+    elif (state.get("has_image")
+          and float(state.get("image_complexity") or 0.0) >= VISION_COMPLEXITY_THRESHOLD):
+        path = "vision_path"
+        reason = f"image complexity {state.get('image_complexity')} >= {VISION_COMPLEXITY_THRESHOLD}"
+    else:
+        path = "standard_optimization_path"
+        reason = "normal non-sensitive cache-miss request"
+    return {
+        "graph_path": path,
+        "branch_reason": reason,
+        "executed_nodes": ["route_request_path"],
+        "decision_reasons": [f"graph_path={path} ({reason})"],
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Terminal path nodes (reject / cache / local-only / vision)
+# --------------------------------------------------------------------------- #
+def reject_path(state: OptimizerState) -> dict[str, Any]:
+    return {
+        "selected_tier": "reject",
+        "compression_recommended": False,
+        "compression_target_ratio": RATIO_NONE,
+        "compression_reason": "n/a: request rejected",
+        "compression_risk": "low",
+        "fallback_tier": "none",
+        "fallback_reason": "request rejected; no model execution",
+        "escalation_conditions": [],
+        "executed_nodes": ["reject_path"],
+        "decision_reasons": [
+            f"reject_path: guardrail blocked ({state.get('guardrail_reason', 'blocked')})"
+        ],
+    }
+
+
+def cache_path(state: OptimizerState) -> dict[str, Any]:
+    return {
+        "selected_tier": "cache",
+        "compression_recommended": False,
+        "compression_target_ratio": RATIO_NONE,
+        "compression_reason": "n/a: served from semantic cache",
+        "compression_risk": "low",
+        "fallback_tier": "cheap",
+        "fallback_reason": "defensive: cache invalidated -> regenerate on cheap tier",
+        "escalation_conditions": ["cache entry stale/invalid -> regenerate"],
+        "executed_nodes": ["cache_path"],
+        "decision_reasons": ["cache_path: reuse semantic cache answer, no model call"],
+    }
+
+
+def local_only_path(state: OptimizerState) -> dict[str, Any]:
+    return {
+        "selected_tier": "local",
+        "compression_recommended": False,
+        "compression_target_ratio": RATIO_NONE,
+        "compression_reason": "sensitive: preserve facts; no external compression",
+        "compression_risk": "low",
+        "fallback_tier": "none",
+        "fallback_reason": "sensitive local-only request: no external fallback",
+        "escalation_conditions": ["local-only: no escalation to external providers"],
+        "executed_nodes": ["local_only_path"],
+        "decision_reasons": ["local_only_path: privacy requires local model, external prohibited"],
+    }
+
+
+def vision_path(state: OptimizerState) -> dict[str, Any]:
+    return {
+        "selected_tier": "vision",
+        "compression_recommended": False,
+        "compression_target_ratio": RATIO_NONE,
+        "compression_reason": "n/a: vision request",
+        "compression_risk": "low",
+        "fallback_tier": "premium",
+        "fallback_reason": "vision model unavailable -> premium multimodal fallback",
+        "escalation_conditions": ["vision provider down -> premium multimodal"],
+        "executed_nodes": ["vision_path"],
+        "decision_reasons": [
+            f"vision_path: image complexity {state.get('image_complexity')} requires vision model"
+        ],
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Standard path nodes
+# --------------------------------------------------------------------------- #
 def apply_policy_mode(state: OptimizerState) -> dict[str, Any]:
     mode = state.get("policy_mode", "balanced")
     notes = {
@@ -287,81 +397,60 @@ def apply_policy_mode(state: OptimizerState) -> dict[str, Any]:
         "balanced": "balanced: cheapest tier that meets quality",
         "aggressive": "aggressive: prioritize savings, prefer local/cheap",
     }.get(mode, "balanced")
-    return {"decision_reasons": [notes]}
+    return {"executed_nodes": ["apply_policy_mode"], "decision_reasons": [notes]}
 
 
 def decide_compression(state: OptimizerState) -> dict[str, Any]:
+    """Only runs on the compression_path branch (long-enough prompts)."""
     tokens = state.get("estimated_tokens", 0)
     mode = state.get("policy_mode", "balanced")
     sensitive = state.get("contains_sensitive_data", False)
+    long_t, very_long_t = _compression_thresholds(mode)
 
-    # Per-mode length thresholds (in tokens).
-    if mode == "aggressive":
-        long_t, very_long_t = 150, 400
-    elif mode == "conservative":
-        long_t, very_long_t = 400, 800
-    else:
-        long_t, very_long_t = 250, 600
-
-    recommended = False
-    ratio = RATIO_NONE
-    reason = "prompt is already short; no compression needed"
-
-    if tokens < 60:
-        recommended, ratio = False, RATIO_NONE
-        reason = "prompt is already short; no compression needed"
-    elif tokens >= very_long_t:
-        recommended = True
+    if tokens >= very_long_t:
         ratio = RATIO_AGGRESSIVE if mode == "aggressive" else RATIO_MEDIUM
         reason = f"very long prompt ({tokens}t) under {mode} policy"
-    elif tokens >= long_t:
-        recommended = True
+    else:
         ratio = RATIO_MEDIUM if mode == "aggressive" else RATIO_LIGHT
         reason = f"long prompt ({tokens}t) under {mode} policy"
-    else:
-        recommended, ratio = False, RATIO_NONE
-        reason = f"prompt length ({tokens}t) below {mode} compression threshold"
 
     risk = "low" if ratio >= RATIO_LIGHT else "medium" if ratio >= RATIO_MEDIUM else "high"
-
-    # High-risk compression is skipped unless explicitly in aggressive mode.
     if risk == "high" and mode != "aggressive":
         ratio, risk = RATIO_MEDIUM, "medium"
         reason += " (capped: high-risk compression avoided)"
-
-    # Sensitive prompts: preserve facts + system instructions -> never below light.
-    if sensitive and recommended and ratio < RATIO_LIGHT:
+    if sensitive and ratio < RATIO_LIGHT:
         ratio, risk = RATIO_LIGHT, "medium"
         reason += " (sensitive: preserve facts/system instructions)"
 
     return {
-        "compression_recommended": recommended,
+        "compression_recommended": True,
         "compression_target_ratio": ratio,
         "compression_reason": reason,
         "compression_risk": risk,
-        "decision_reasons": [f"compression={recommended} ratio={ratio} risk={risk}"],
+        "executed_nodes": ["decide_compression"],
+        "decision_reasons": [f"compression=True ratio={ratio} risk={risk}"],
+    }
+
+
+def skip_compression(state: OptimizerState) -> dict[str, Any]:
+    tokens = state.get("estimated_tokens", 0)
+    mode = state.get("policy_mode", "balanced")
+    return {
+        "compression_recommended": False,
+        "compression_target_ratio": RATIO_NONE,
+        "compression_reason": f"prompt length ({tokens}t) below {mode} compression threshold",
+        "compression_risk": "low",
+        "executed_nodes": ["skip_compression"],
+        "decision_reasons": [f"compression skipped (short prompt for {mode})"],
     }
 
 
 def select_model_tier(state: OptimizerState) -> dict[str, Any]:
-    reasons: list[str] = []
-
-    # Defensive overrides first.
-    if state.get("guardrail_status") == "blocked":
-        return {"selected_tier": "reject", "decision_reasons": ["guardrail blocked -> reject tier"]}
-
-    if state.get("require_local_model"):
-        return {"selected_tier": "local", "decision_reasons": ["privacy: require_local_model -> local tier"]}
-
-    if state.get("cache_status") == "hit" and float(state.get("cache_confidence") or 0.0) >= 0.88:
-        return {"selected_tier": "cache", "decision_reasons": ["cache hit -> cache tier"]}
-
-    if state.get("has_image") and float(state.get("image_complexity") or 0.0) >= 0.5:
-        return {"selected_tier": "vision", "decision_reasons": ["image requires vision -> vision tier"]}
-
+    """Standard-path tier selection by complexity x policy x quality."""
     mode = state.get("policy_mode", "balanced")
     level = state.get("complexity_level", "medium")
     quality = state.get("quality_requirement", "medium")
+    reasons: list[str] = []
 
     if level == "low":
         tier = "local" if mode == "aggressive" else "cheap"
@@ -371,7 +460,7 @@ def select_model_tier(state: OptimizerState) -> dict[str, Any]:
             tier = "cheap"
         elif mode == "conservative":
             tier = "balanced"
-        else:  # balanced: cheapest tier meeting quality
+        else:
             tier = "cheap" if quality == "low" else "balanced"
         reasons.append(f"medium complexity under {mode} (quality={quality}) -> {tier}")
     else:  # high
@@ -379,11 +468,10 @@ def select_model_tier(state: OptimizerState) -> dict[str, Any]:
             tier = "premium" if quality == "high" else "balanced"
         elif mode == "conservative":
             tier = "premium"
-        else:  # balanced
+        else:
             tier = "premium" if quality == "high" else "balanced"
         reasons.append(f"high complexity under {mode} (quality={quality}) -> {tier}")
 
-    # Optional cost ceiling (kept simple): downgrade if optimized tier too pricey.
     max_cost = state.get("max_cost")
     if max_cost is not None:
         tokens = state.get("estimated_tokens", 0)
@@ -395,41 +483,42 @@ def select_model_tier(state: OptimizerState) -> dict[str, Any]:
             tier = order[idx - 1]
             reasons.append(f"cost ceiling {max_cost} -> downgraded to {tier}")
 
-    return {"selected_tier": tier, "decision_reasons": reasons}
+    return {"selected_tier": tier, "executed_nodes": ["select_model_tier"],
+            "decision_reasons": reasons}
 
 
 def build_fallback_plan(state: OptimizerState) -> dict[str, Any]:
     tier = state.get("selected_tier", "cheap")
     allow_external = state.get("allow_external_model", True)
-
     escalation = ["cheap/balanced fail quality check -> escalate one tier"]
-    if tier == "local" and not allow_external:
-        fb, reason = "none", "sensitive local-only request: no external fallback"
-        escalation = ["local-only: no escalation to external providers"]
-    elif tier == "local":
-        fb, reason = "cheap", "local unavailable and external permitted -> cheap"
-    elif tier == "cheap":
+
+    if tier == "cheap":
         fb, reason = "balanced", "cheap fails quality validation -> balanced"
     elif tier == "balanced":
         fb = "premium" if allow_external else "local"
-        reason = "balanced fails quality validation -> premium" if allow_external else "external not permitted -> local"
+        reason = ("balanced fails quality validation -> premium"
+                  if allow_external else "external not permitted -> local")
     elif tier == "premium":
         fb, reason = "balanced", "premium provider unavailable -> balanced provider fallback"
-    elif tier == "vision":
-        fb, reason = "premium", "vision model unavailable -> premium multimodal fallback"
-    elif tier == "cache":
-        fb, reason = "cheap", "cache invalidated -> regenerate on cheap tier"
-    else:  # reject
-        fb, reason = "none", "request rejected; no model execution"
+    elif tier == "local":
+        fb = "cheap" if allow_external else "none"
+        reason = ("local unavailable and external permitted -> cheap"
+                  if allow_external else "local-only: no external fallback")
+    else:
+        fb, reason = "balanced", "generic quality fallback"
 
     return {
         "fallback_tier": fb,
         "fallback_reason": reason,
         "escalation_conditions": escalation,
+        "executed_nodes": ["build_fallback_plan"],
         "decision_reasons": [f"fallback={fb} ({reason})"],
     }
 
 
+# --------------------------------------------------------------------------- #
+# Convergence nodes (shared by every path)
+# --------------------------------------------------------------------------- #
 def calculate_estimated_savings(state: OptimizerState) -> dict[str, Any]:
     tokens = state.get("estimated_tokens", 0)
     tier = state.get("selected_tier", "cheap")
@@ -442,6 +531,7 @@ def calculate_estimated_savings(state: OptimizerState) -> dict[str, Any]:
         "estimated_baseline_cost": baseline,
         "estimated_optimized_cost": optimized,
         "estimated_savings": savings,
+        "executed_nodes": ["calculate_estimated_savings"],
         "decision_reasons": [
             f"baseline(premium)={baseline}, optimized({tier})={optimized}, savings={savings}"
         ],
@@ -454,11 +544,26 @@ def build_optimization_plan(state: OptimizerState) -> dict[str, Any]:
         "route": tier,
         "compress": bool(state.get("compression_recommended", False)),
         "compression_target_ratio": state.get("compression_target_ratio", RATIO_NONE),
-        "local_only": bool(state.get("require_local_model", False)),
-        "allow_external": bool(state.get("allow_external_model", True)),
+        "local_only": bool(state.get("require_local_model", False)) or tier == "local",
+        "allow_external": bool(state.get("allow_external_model", True)) and tier != "local",
         "fallback_tier": state.get("fallback_tier", "balanced"),
     }
-    return {"optimization_plan": plan, "decision_reasons": ["optimization plan assembled"]}
+    return {"optimization_plan": plan, "executed_nodes": ["build_optimization_plan"],
+            "decision_reasons": ["optimization plan assembled"]}
+
+
+# --------------------------------------------------------------------------- #
+# Conditional edge routers (return the mapping KEY, not state)
+# --------------------------------------------------------------------------- #
+def _pick_path(state: OptimizerState) -> str:
+    return state.get("graph_path", "standard_optimization_path")
+
+
+def should_recommend_compression(state: OptimizerState) -> str:
+    tokens = state.get("estimated_tokens", 0)
+    mode = state.get("policy_mode", "balanced")
+    long_t, _ = _compression_thresholds(mode)
+    return "compression_path" if tokens >= long_t else "skip_compression_path"
 
 
 # --------------------------------------------------------------------------- #
@@ -466,15 +571,26 @@ def build_optimization_plan(state: OptimizerState) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 def build_graph():
     g = StateGraph(OptimizerState)
+
+    # shared prefix
     g.add_node("normalize_inputs", normalize_inputs)
     g.add_node("classify_task", classify_task)
     g.add_node("estimate_complexity", estimate_complexity)
     g.add_node("evaluate_sensitivity", evaluate_sensitivity)
     g.add_node("evaluate_cache_signal", evaluate_cache_signal)
+    g.add_node("route_request_path", route_request_path)
+    # terminal paths
+    g.add_node("reject_path", reject_path)
+    g.add_node("cache_path", cache_path)
+    g.add_node("local_only_path", local_only_path)
+    g.add_node("vision_path", vision_path)
+    # standard path
     g.add_node("apply_policy_mode", apply_policy_mode)
     g.add_node("decide_compression", decide_compression)
+    g.add_node("skip_compression", skip_compression)
     g.add_node("select_model_tier", select_model_tier)
     g.add_node("build_fallback_plan", build_fallback_plan)
+    # convergence
     g.add_node("calculate_estimated_savings", calculate_estimated_savings)
     g.add_node("build_optimization_plan", build_optimization_plan)
 
@@ -483,11 +599,41 @@ def build_graph():
     g.add_edge("classify_task", "estimate_complexity")
     g.add_edge("estimate_complexity", "evaluate_sensitivity")
     g.add_edge("evaluate_sensitivity", "evaluate_cache_signal")
-    g.add_edge("evaluate_cache_signal", "apply_policy_mode")
-    g.add_edge("apply_policy_mode", "decide_compression")
+    g.add_edge("evaluate_cache_signal", "route_request_path")
+
+    # CONDITIONAL EDGE #1: request path
+    g.add_conditional_edges(
+        "route_request_path",
+        _pick_path,
+        {
+            "reject_path": "reject_path",
+            "cache_path": "cache_path",
+            "local_only_path": "local_only_path",
+            "vision_path": "vision_path",
+            "standard_optimization_path": "apply_policy_mode",
+        },
+    )
+
+    # terminal paths converge straight to cost estimation
+    g.add_edge("reject_path", "calculate_estimated_savings")
+    g.add_edge("cache_path", "calculate_estimated_savings")
+    g.add_edge("local_only_path", "calculate_estimated_savings")
+    g.add_edge("vision_path", "calculate_estimated_savings")
+
+    # CONDITIONAL EDGE #2: compression recommendation (standard path only)
+    g.add_conditional_edges(
+        "apply_policy_mode",
+        should_recommend_compression,
+        {
+            "compression_path": "decide_compression",
+            "skip_compression_path": "skip_compression",
+        },
+    )
     g.add_edge("decide_compression", "select_model_tier")
+    g.add_edge("skip_compression", "select_model_tier")
     g.add_edge("select_model_tier", "build_fallback_plan")
     g.add_edge("build_fallback_plan", "calculate_estimated_savings")
+
     g.add_edge("calculate_estimated_savings", "build_optimization_plan")
     g.add_edge("build_optimization_plan", END)
     return g.compile()
@@ -498,7 +644,7 @@ _GRAPH = build_graph()
 
 
 def run_optimizer(request: dict[str, Any]) -> dict[str, Any]:
-    """Invoke the LangGraph optimizer and return the final state as a dict."""
+    """Invoke the conditional LangGraph optimizer; return the final state dict."""
     initial: OptimizerState = {
         "request_id": request.get("request_id") or "",
         "prompt": request.get("prompt") or "",
@@ -517,6 +663,16 @@ def run_optimizer(request: dict[str, Any]) -> dict[str, Any]:
         "image_class": request.get("image_class") or "",
         "image_complexity": float(request.get("image_complexity") or 0.0),
         "max_cost": request.get("max_cost"),
+        "executed_nodes": [],
         "decision_reasons": [],
     }
     return _GRAPH.invoke(initial)
+
+
+def mermaid() -> str:
+    """Return the compiled graph as Mermaid text (uses LangGraph's built-in
+    exporter; no extra visualization libraries).
+
+    Usage: python -c "from graph import mermaid; print(mermaid())"
+    """
+    return _GRAPH.get_graph().draw_mermaid()

@@ -83,6 +83,10 @@ def agent_run(req: AgentRunRequest):
         "estimated_savings": result.get("estimated_savings", 0.0),
         "decision_reasons": reasons,
         "optimization_plan": result.get("optimization_plan", {}),
+        # --- graph observability (Day 5.1 conditional graph) ---
+        "graph_path": result.get("graph_path", "standard_optimization_path"),
+        "branch_reason": result.get("branch_reason", ""),
+        "executed_nodes": result.get("executed_nodes", []),
         # --- legacy compatibility fields (do not remove) ---
         "estimated_tokens": result.get("estimated_tokens", 0),
         "estimated_cost": result.get("estimated_optimized_cost", 0.0),
