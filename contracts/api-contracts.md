@@ -140,20 +140,72 @@ Response (mock):
 { "class": "unknown", "confidence": 0.0, "visual_complexity": 0.0, "needs_vision_model": false }
 ```
 
-## optimizer-service
+## optimizer-service (Day 5: real LangGraph Optimization Engine)
+
+A deterministic multi-node **LangGraph** state graph (`graph.py`) turns request
+signals into a structured Optimization Plan. No LLM is used inside the graph.
+
+**Graph nodes (in order):** `normalize_inputs -> classify_task ->
+estimate_complexity -> evaluate_sensitivity -> evaluate_cache_signal ->
+apply_policy_mode -> decide_compression -> select_model_tier ->
+build_fallback_plan -> calculate_estimated_savings -> build_optimization_plan`.
+
+**Routing tiers:** `local | cheap | balanced | premium | vision | reject | cache | fallback`.
+
+**Static price table (USD / 1k tokens):** local `0.00005`, cheap `0.0005`,
+balanced `0.003`, premium `0.03`, vision `0.01`, cache/reject `0.0`.
+`baseline = premium price`, `optimized = selected tier price`,
+`savings = max(0, baseline - optimized)` (never negative).
+
+**Complexity score (0-1):** length signal (cap 0.30) + task-type weight +
+reasoning-keyword density + code/doc bump + image-complexity bump + quality floor.
+Levels: `<=0.30 low`, `<=0.65 medium`, `>0.65 high`.
+
+**Policy modes:** `conservative` (protect quality, minimal compression),
+`balanced` (cheapest tier meeting quality), `aggressive` (prefer local/cheap,
+compress earlier). The same prompt can yield different plans per mode.
 
 ### POST /agent/run
-Request:
+Request (signals forwarded by n8n from normalize + guardrails + cache):
 ```json
 { "request_id": "r1", "prompt": "...", "policy_mode": "balanced",
-  "guardrail_status": "passed", "cache_status": "miss" }
+  "guardrail_status": "passed", "guardrail_reason": "passed",
+  "cache_status": "miss", "cache_confidence": 0.0,
+  "contains_sensitive_data": false, "require_local_model": false,
+  "allow_external_model": true, "estimated_tokens": 7,
+  "has_image": false, "image_complexity": 0.0, "max_cost": null }
 ```
-Response (mock):
+Response (rich plan + legacy compatibility fields):
 ```json
-{ "selected_tier": "cheap", "estimated_tokens": 42, "estimated_cost": 0.00021,
-  "optimization_reason": "Low complexity, no sensitive data -> cheap tier (mock)",
-  "cost_saved": 0.0018 }
+{
+  "request_id": "r1",
+  "task_type": "support_request",
+  "complexity_score": 0.25,
+  "complexity_level": "low",
+  "selected_tier": "cheap",
+  "compression_recommended": false,
+  "compression_target_ratio": 1.0,
+  "compression_reason": "prompt is already short; no compression needed",
+  "compression_risk": "low",
+  "fallback_tier": "balanced",
+  "fallback_reason": "cheap fails quality validation -> balanced",
+  "escalation_conditions": ["cheap/balanced fail quality check -> escalate one tier"],
+  "estimated_baseline_cost": 0.00021,
+  "estimated_optimized_cost": 0.0000035,
+  "estimated_savings": 0.0002065,
+  "decision_reasons": ["task_type=support_request (...)", "complexity=0.25 (low) ...", "..."],
+  "optimization_plan": { "route": "cheap", "compress": false, "compression_target_ratio": 1.0,
+    "local_only": false, "allow_external": true, "fallback_tier": "balanced" },
+  "estimated_tokens": 7,
+  "estimated_cost": 0.0000035,
+  "cost_saved": 0.0002065,
+  "optimization_reason": "support_request/low -> cheap tier [balanced]"
+}
 ```
+Legacy compatibility fields preserved for n8n/React: `selected_tier`,
+`estimated_tokens`, `estimated_cost`, `cost_saved`, `optimization_reason`.
+
+Unit tests: `cd services/optimizer-service && pip install -r requirements.txt pytest && python -m pytest -q`.
 
 ## Final response returned by n8n to the UI
 

@@ -83,6 +83,41 @@ sequenceDiagram
     end
 ```
 
+## Optimizer LangGraph (Day 5)
+
+The `optimizer-service` is a deterministic multi-node LangGraph state graph. On a
+cache miss, n8n calls it with request + guardrail + cache signals; it returns a
+structured Optimization Plan (tier, compression recommendation, fallback,
+cost/savings, decision reasons).
+
+```mermaid
+flowchart TB
+    START((start)) --> N1[normalize_inputs]
+    N1 --> N2[classify_task]
+    N2 --> N3[estimate_complexity]
+    N3 --> N4[evaluate_sensitivity]
+    N4 --> N5[evaluate_cache_signal]
+    N5 --> N6[apply_policy_mode]
+    N6 --> N7[decide_compression]
+    N7 --> N8[select_model_tier]
+    N8 --> N9[build_fallback_plan]
+    N9 --> N10[calculate_estimated_savings]
+    N10 --> N11[build_optimization_plan]
+    N11 --> E((end))
+```
+
+- **Tiers:** local, cheap, balanced, premium, vision, reject, cache, fallback.
+- **Sensitive / require_local -> local** (no external fallback).
+- **Blocked guardrail -> reject** (defensive; normally short-circuited earlier).
+- **Cache hit signal -> cache** (defensive; normally short-circuited earlier).
+- **Complexity** blends length, task type, reasoning keywords, code/doc, image,
+  and quality signals (not just length).
+- **Policy modes** (conservative/balanced/aggressive) can produce different plans
+  for the same prompt.
+- Cost uses a static per-1k-token table; savings = premium baseline - optimized,
+  never negative. `optimization_plan` and `decision_reasons` are surfaced in the
+  Decision Receipt.
+
 ## What is real vs mocked in this step
 
 | Layer / concern | Status in skeleton |
@@ -92,7 +127,7 @@ sequenceDiagram
 | 4 FastAPI services + /health | Real services, mock responses |
 | Guardrails logic | Real (Day 3: rules + regex, input & output) |
 | Semantic cache / embeddings | Real (Day 4: MiniLM + ChromaDB, cosine, dept isolation) |
-| LangGraph optimizer decision | Mocked (static plan) |
+| LangGraph optimizer decision | Real (Day 5: multi-node LangGraph, deterministic rules) |
 | PyTorch image analysis | Mocked (static class) |
 | Model provider call | Mocked answer string |
 | Langfuse tracing | Placeholder only |

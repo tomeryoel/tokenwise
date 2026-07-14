@@ -7,9 +7,10 @@ providers. Every AI request passes through TokenWise, which optimizes it before
 it reaches a model (guardrails, semantic cache, dynamic routing, compression),
 then reports the savings.
 
-> **Status:** four-layer end-to-end path is working. **Guardrails (Day 3)** and the
-> **semantic cache (Day 4)** are now real. LangGraph decisions, PyTorch training,
-> Langfuse tracing and external LLM calls are still mocked / added in later phases.
+> **Status:** four-layer end-to-end path is working. **Guardrails (Day 3)**, the
+> **semantic cache (Day 4)** and the **LangGraph optimizer (Day 5)** are now real.
+> PyTorch training, Langfuse tracing and external LLM calls are still mocked /
+> added in later phases.
 
 ## Architecture (four layers)
 
@@ -148,16 +149,36 @@ On a miss, the model path runs and the safe final answer is stored (best-effort)
 > First lookup/store after a cold start downloads the MiniLM model (~90 MB) into
 > the volume; subsequent restarts reuse it.
 
+## Optimizer LangGraph (Day 5)
+
+The `optimizer-service` is a real, deterministic **LangGraph** state graph
+(`services/optimizer-service/graph.py`) with explicit nodes:
+`normalize_inputs -> classify_task -> estimate_complexity ->
+evaluate_sensitivity -> evaluate_cache_signal -> apply_policy_mode ->
+decide_compression -> select_model_tier -> build_fallback_plan ->
+calculate_estimated_savings -> build_optimization_plan`.
+
+It returns a structured Optimization Plan (routing tier, compression
+recommendation, fallback plan, cost/savings estimate, decision reasons). Policy
+modes (`conservative`/`balanced`/`aggressive`) can produce different plans for the
+same prompt. See [docs/architecture.md](docs/architecture.md) for the graph diagram.
+
+Run the optimizer unit tests without Docker/n8n:
+
+```powershell
+cd services/optimizer-service
+pip install -r requirements.txt pytest
+python -m pytest -q
+```
+
 ## What is still mocked
 
-- Optimizer returns a static-ish plan (numbers derived from prompt length); no
-  LangGraph decisions yet.
 - Image analyser returns a fixed class; not wired into the flow yet.
 - Model answer is a fixed mock string; no Ollama/external LLM yet.
 - Dashboard shows mock metrics; no usage DB yet.
 - Langfuse is a commented placeholder in docker-compose.
 
-Real: guardrails (Day 3) and semantic cache (Day 4).
+Real: guardrails (Day 3), semantic cache (Day 4), LangGraph optimizer (Day 5).
 
 ## Frontend without Docker (optional)
 
