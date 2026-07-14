@@ -1,15 +1,17 @@
-"""optimizer-service (Day 5: LangGraph + Day 6: Layer 4 provider execution).
+"""optimizer-service (Day 5: LangGraph + Day 6: Layer 4 + Day 7: Usage DB).
 
-Two distinct responsibilities behind separate endpoints:
+Responsibilities behind separate endpoints/modules:
 
 1. POST /agent/run  - LangGraph Optimization Plan (graph.py)
 2. POST /providers/execute - Layer 4 model provider execution (providers/)
+3. POST /usage/log, GET /usage/summary, GET /usage/recent - usage persistence (usage/)
 
-Provider adapters are packaged inside optimizer-service as an MVP decision to
-preserve the lecturer-required four FastAPI microservices. A commercial version
-may later extract them into a dedicated gateway/runtime service.
+Provider and usage modules are packaged inside optimizer-service as an MVP
+decision to preserve the lecturer-required four FastAPI microservices.
 """
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from graph import run_optimizer
@@ -17,10 +19,21 @@ from providers.executor import execute_provider
 from providers.ollama_provider import OllamaProvider
 from providers.openai_provider import OpenAIProvider
 from providers.schemas import ProviderExecuteRequest
+from usage.analytics import get_recent, get_summary
+from usage.database import init_db
+from usage.repository import log_usage
+from usage.schemas import UsageLogRequest, UsageLogResponse, UsageRecentResponse, UsageSummaryResponse
 
 SERVICE_NAME = "optimizer-service"
 
-app = FastAPI(title=SERVICE_NAME)
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title=SERVICE_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -113,3 +126,24 @@ def agent_run(req: AgentRunRequest):
 @app.post("/providers/execute")
 async def providers_execute(req: ProviderExecuteRequest):
     return await execute_provider(req)
+
+
+@app.post("/usage/log", response_model=UsageLogResponse)
+def usage_log(req: UsageLogRequest):
+    return log_usage(req)
+
+
+@app.get("/usage/summary", response_model=UsageSummaryResponse)
+def usage_summary(
+    dept_id: str | None = Query(default=None),
+    period_days: int = Query(default=30, ge=1, le=365),
+):
+    return get_summary(period_days=period_days, dept_id=dept_id)
+
+
+@app.get("/usage/recent", response_model=UsageRecentResponse)
+def usage_recent(
+    limit: int = Query(default=20, ge=1, le=100),
+    dept_id: str | None = Query(default=None),
+):
+    return get_recent(limit=limit, dept_id=dept_id)

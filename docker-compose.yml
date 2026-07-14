@@ -55,6 +55,9 @@ services:
       - OPENAI_PREMIUM_MODEL=
       - OPENAI_REQUEST_TIMEOUT_SECONDS=60
       - MODEL_PRICING_CONFIG_PATH=/app/config/model_pricing.json
+      - USAGE_DB_PATH=/app/data/usage/tokenwise.db
+    volumes:
+      - usage_data:/app/data/usage
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -89,6 +92,7 @@ services:
     environment:
       # Browser talks to n8n on the host; empty/failed -> UI falls back to mock.
       - VITE_N8N_WEBHOOK_URL=http://localhost:5679/webhook/tokenwise
+      - VITE_USAGE_SUMMARY_URL=http://localhost:5679/webhook/tokenwise-usage-summary
     depends_on:
       - n8n
     restart: unless-stopped
@@ -104,3 +108,4 @@ services:
 volumes:
   n8n_data:
   rag_cache_data:
+  usage_data:
