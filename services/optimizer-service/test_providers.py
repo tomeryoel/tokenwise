@@ -195,6 +195,27 @@ async def test_missing_external_triggers_ollama_fallback():
     assert r.provider == "ollama"
     assert r.used_fallback is True
     assert r.fallback_reason == "external_provider_not_configured"
+    assert r.actual_execution_attempt_count == 1
+    assert r.attempts[0].executed is False
+    assert r.attempts[0].attempt_role == "configuration_check"
+    assert r.attempts[1].executed is True
+    assert r.attempts[1].attempt_role == "primary"
+
+
+@pytest.mark.asyncio
+async def test_max_two_actual_executions():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            return httpx.Response(500, json={"error": "server error"})
+        return httpx.Response(200, json=OLLAMA_CHAT_OK)
+
+    set_test_transport("ollama", httpx.MockTransport(handler))
+    r = await execute_provider(_req(selected_tier="cheap", fallback_tier="balanced"))
+    assert r.actual_execution_attempt_count <= 2
+    assert calls["n"] <= 2
 
 
 @pytest.mark.asyncio
@@ -230,8 +251,9 @@ async def test_timeout_triggers_one_fallback():
     r = await execute_provider(_req(selected_tier="cheap", fallback_tier="balanced"))
     assert r.success is True
     assert len(r.attempts) == 3
-    assert r.attempts[0].provider == "openai"
-    assert r.attempts[0].success is False
+    assert r.attempts[0].executed is False
+    assert r.attempts[0].attempt_role == "configuration_check"
+    assert r.actual_execution_attempt_count == 2
     assert r.used_fallback is True
 
 
@@ -245,7 +267,8 @@ async def test_both_attempts_fail():
     assert r.success is False
     assert r.error_code == "ALL_ATTEMPTS_FAILED"
     assert len(r.attempts) == 3
-    assert r.attempts[0].provider == "openai"
+    assert r.attempts[0].executed is False
+    assert r.actual_execution_attempt_count == 2
 
 
 @pytest.mark.asyncio
