@@ -168,12 +168,18 @@ append reducer). Skipped branches never appear in `executed_nodes`.
 | Layer / concern | Status in skeleton |
 |---|---|
 | React UI (Playground/Dashboard/Admin) | Real (minimal) |
-| n8n orchestration workflow | Real wiring, mock logic |
+| n8n orchestration workflow | Real wiring; Provider Execute calls Ollama (re-import workflow after JSON changes) |
 | 4 FastAPI services + /health | Real services, mock responses |
 | Guardrails logic | Real (Day 3: rules + regex, input & output) |
 | Semantic cache / embeddings | Real (Day 4: MiniLM + ChromaDB, cosine, dept isolation) |
 | LangGraph optimizer decision | Real (Day 5: multi-node LangGraph, deterministic rules) |
 | PyTorch image analysis | Mocked (static class) |
 | Model provider call | Real (Day 6: Ollama local + optional OpenAI via /providers/execute) |
+
+**Provider execution limit:** at most **two actual HTTP model calls** per request
+(one primary, one fallback). Skipped OpenAI configuration checks appear in
+`attempts` with `executed=false` and `attempt_role=configuration_check`; they are
+not counted in `actual_execution_attempt_count`.
+
 | Langfuse tracing | Placeholder only |
 | Usage DB / ROI | Not yet (Dashboard uses mock numbers) |

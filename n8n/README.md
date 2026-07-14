@@ -16,6 +16,22 @@ Cache hits and blocked inputs short-circuit before provider execution.
 4. Click **Save**, then toggle **Active** (top-right) so the production webhook
    URL is live.
 
+### Re-import after workflow JSON changes (Day 6+)
+
+When `tokenwise-skeleton.workflow.json` changes in git, the running n8n container
+does **not** pick it up automatically. Re-import and publish:
+
+```powershell
+docker cp n8n/tokenwise-skeleton.workflow.json tokenwise-n8n-1:/tmp/tokenwise-workflow.json
+docker exec tokenwise-n8n-1 n8n import:workflow --input=/tmp/tokenwise-workflow.json
+docker exec tokenwise-n8n-1 n8n publish:workflow --id=tokenwiseskeleton
+docker restart tokenwise-n8n-1
+```
+
+Only one workflow (`tokenwiseskeleton`) should be active for `/webhook/tokenwise`.
+Import deactivates the previous version automatically. The n8n named volume is
+preserved.
+
 The active webhook URL is:
 
 ```

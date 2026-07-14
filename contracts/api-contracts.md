@@ -246,7 +246,8 @@ Request:
   "contains_sensitive_data": false, "require_local_model": false,
   "allow_external_model": true, "estimated_tokens": 20,
   "estimated_baseline_cost": 0.001, "estimated_optimized_cost": 0.0001,
-  "optimization_plan": { "route": "cheap", "local_only": false, "allow_external": true } }
+  "optimization_plan": { "route": "cheap", "local_only": false, "allow_external": true },
+  "prompt_redaction_applied": false }
 ```
 Response (success):
 ```json
@@ -255,19 +256,21 @@ Response (success):
   "actual_input_tokens": 18, "actual_output_tokens": 42, "actual_total_tokens": 60,
   "actual_cost": 0.0, "actual_cost_saved": 0.001, "latency_ms": 1234,
   "used_fallback": true, "fallback_reason": "external_provider_not_configured",
-  "privacy_enforced": false, "cost_calculation_status": "local_zero_api_cost",
-  "attempts": [{ "provider": "ollama", "tier": "cheap", "model": "llama3.1:latest", "success": true }] }
+  "privacy_enforced": false, "prompt_redaction_applied": false,
+  "cost_calculation_status": "local_zero_api_cost",
+  "actual_execution_attempt_count": 1,
+  "attempts": [
+    { "provider": "openai", "tier": "cheap", "executed": false, "success": false,
+      "attempt_role": "configuration_check", "error_code": "PROVIDER_NOT_CONFIGURED" },
+    { "provider": "ollama", "tier": "cheap", "model": "llama3.1:latest",
+      "executed": true, "success": true, "attempt_role": "primary" }
+  ] }
 ```
 
-**Tier mapping:** local→Ollama only; cheap/balanced/premium→OpenAI if enabled else
-Ollama; vision→unsupported; cache/reject→validation error (EXECUTION_NOT_REQUIRED /
-REQUEST_REJECTED).
-
-**Privacy:** require_local_model, contains_sensitive_data, optimization_plan.local_only,
-or allow_external=false → Ollama only, no OpenAI, no external fallback.
-
-**Fallback:** at most one primary + one fallback attempt. Sensitive requests may
-fall back to another local model only.
+**Attempt semantics:** `attempts` may list configuration checks (no HTTP call) plus
+actual executions. `actual_execution_attempt_count` is capped at **2** (one primary,
+one fallback). Items with `executed=false` and `attempt_role=configuration_check`
+are skipped candidates, not model calls.
 
 **Pricing:** `config/model_pricing.json` (per-million input/output tokens).
 Ollama actual_cost=0 (local_zero_api_cost). Unknown paid models → actual_cost=null,
