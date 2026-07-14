@@ -7,10 +7,11 @@ providers. Every AI request passes through TokenWise, which optimizes it before
 it reaches a model (guardrails, semantic cache, dynamic routing, compression),
 then reports the savings.
 
-> **Status:** four-layer end-to-end path is working. **Guardrails (Day 3)**, the
-> **semantic cache (Day 4)** and the **LangGraph optimizer (Day 5)** are now real.
-> PyTorch training, Langfuse tracing and external LLM calls are still mocked /
-> added in later phases.
+> **Status:** four-layer end-to-end path is working. **Guardrails (Day 3)**,
+> **semantic cache (Day 4)**, **LangGraph optimizer (Day 5)** and **Layer 4
+> provider execution (Day 6)** are now real. PyTorch training, Langfuse tracing,
+> usage DB / dashboard metrics, and prompt compression execution remain for later
+> phases.
 
 ## Architecture (four layers)
 
@@ -29,7 +30,8 @@ flowchart TB
         OPT["optimizer-service :8004"]
     end
     subgraph L4 [Layer 4 - Model provider]
-        MOCK["mock model response"]
+        OLLAMA["Ollama local"]
+        OPENAI["OpenAI optional"]
     end
 
     UI -->|POST webhook| N8N
@@ -37,7 +39,8 @@ flowchart TB
     N8N --> RAG
     N8N --> OPT
     N8N -. later .-> IMG
-    N8N --> MOCK
+    OPT --> OLLAMA
+    OPT -. when configured .-> OPENAI
     N8N -->|answer + Decision Receipt| UI
 ```
 
@@ -56,7 +59,7 @@ tokenwise/
     guardrails-service/       # FastAPI: /health /check/input /check/output
     rag-cache-service/        # FastAPI: /health /cache/lookup /cache/store /policy/query
     image-analyser-service/   # FastAPI: /health /analyse
-    optimizer-service/        # FastAPI: /health /agent/run
+    optimizer-service/        # FastAPI: /health /agent/run /providers/execute /providers/health
   n8n/
     tokenwise-skeleton.workflow.json  # import into n8n
     README.md                          # n8n setup instructions
@@ -174,14 +177,32 @@ pip install -r requirements.txt pytest
 python -m pytest -q
 ```
 
+## Layer 4 model execution (Day 6)
+
+The optimizer-service now executes real models via `POST /providers/execute`.
+Provider adapters live in `services/optimizer-service/providers/` as an MVP
+packaging decision (four-service architecture preserved).
+
+- **Ollama (local):** `POST {OLLAMA_BASE_URL}/api/chat` with `stream=false`.
+  Default model: `llama3.1:latest` (detected on host). Docker uses
+  `http://host.docker.internal:11434` via `extra_hosts`.
+- **OpenAI (optional):** Responses API, enabled only when
+  `ENABLE_OPENAI_PROVIDER=true` and `OPENAI_API_KEY` is set. Disabled safely
+  when not configured.
+- **Never commit API keys.** Use `services/optimizer-service/.env.example` as
+  a template only.
+
+Provider health: `GET http://localhost:8004/providers/health`
+
 ## What is still mocked
 
 - Image analyser returns a fixed class; not wired into the flow yet.
-- Model answer is a fixed mock string; no Ollama/external LLM yet.
 - Dashboard shows mock metrics; no usage DB yet.
 - Langfuse is a commented placeholder in docker-compose.
+- Prompt compression is recommended only (not executed).
 
-Real: guardrails (Day 3), semantic cache (Day 4), LangGraph optimizer (Day 5).
+Real: guardrails (Day 3), semantic cache (Day 4), LangGraph optimizer (Day 5),
+Layer 4 provider execution (Day 6).
 
 ## Frontend without Docker (optional)
 

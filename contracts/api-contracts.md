@@ -229,6 +229,50 @@ Legacy compatibility fields preserved for n8n/React: `selected_tier`,
 
 Unit tests: `cd services/optimizer-service && pip install -r requirements.txt pytest && python -m pytest -q`.
 
+### GET /providers/health
+Returns Ollama reachability, installed models, configured models, and OpenAI
+enablement status. Does not expose API keys. Fast enough for diagnostics; the
+main `GET /health` remains instant.
+
+### POST /providers/execute (Day 6: real Layer 4 execution)
+Executes the LangGraph-selected tier against configured providers (Ollama local,
+optional OpenAI). Packaged inside optimizer-service to preserve the four-service
+architecture; may be extracted to a dedicated gateway in a commercial version.
+
+Request:
+```json
+{ "request_id": "req-123", "prompt": "How can TokenWise reduce LLM cost?",
+  "selected_tier": "cheap", "fallback_tier": "balanced", "policy_mode": "balanced",
+  "contains_sensitive_data": false, "require_local_model": false,
+  "allow_external_model": true, "estimated_tokens": 20,
+  "estimated_baseline_cost": 0.001, "estimated_optimized_cost": 0.0001,
+  "optimization_plan": { "route": "cheap", "local_only": false, "allow_external": true } }
+```
+Response (success):
+```json
+{ "success": true, "answer": "...", "provider": "ollama", "model": "llama3.1:latest",
+  "requested_tier": "cheap", "executed_tier": "cheap",
+  "actual_input_tokens": 18, "actual_output_tokens": 42, "actual_total_tokens": 60,
+  "actual_cost": 0.0, "actual_cost_saved": 0.001, "latency_ms": 1234,
+  "used_fallback": true, "fallback_reason": "external_provider_not_configured",
+  "privacy_enforced": false, "cost_calculation_status": "local_zero_api_cost",
+  "attempts": [{ "provider": "ollama", "tier": "cheap", "model": "llama3.1:latest", "success": true }] }
+```
+
+**Tier mapping:** local→Ollama only; cheap/balanced/premium→OpenAI if enabled else
+Ollama; vision→unsupported; cache/reject→validation error (EXECUTION_NOT_REQUIRED /
+REQUEST_REJECTED).
+
+**Privacy:** require_local_model, contains_sensitive_data, optimization_plan.local_only,
+or allow_external=false → Ollama only, no OpenAI, no external fallback.
+
+**Fallback:** at most one primary + one fallback attempt. Sensitive requests may
+fall back to another local model only.
+
+**Pricing:** `config/model_pricing.json` (per-million input/output tokens).
+Ollama actual_cost=0 (local_zero_api_cost). Unknown paid models → actual_cost=null,
+cost_calculation_status=pricing_not_configured.
+
 ## Final response returned by n8n to the UI
 
 Cache miss (model path):

@@ -2,7 +2,9 @@
 
 The workflow file `tokenwise-skeleton.workflow.json` implements Layer 2:
 
-`Webhook -> Normalize -> Guardrails -> Cache -> Optimizer -> Build Response -> Respond to Webhook`
+`Webhook -> Normalize -> Guardrails -> Cache -> Optimizer -> Provider Execute -> Output Guardrails -> Cache Store -> Build Response -> Respond to Webhook`
+
+Cache hits and blocked inputs short-circuit before provider execution.
 
 ## Import and activate
 
@@ -41,5 +43,6 @@ You should get back `{ answer, receipt }`.
 - CORS: the Webhook node sets `allowedOrigins: *` and the Respond node adds an
   `Access-Control-Allow-Origin: *` header so the React dev server can call it
   from the browser.
-- If the browser call still fails, the React UI automatically falls back to a
-  clearly-labelled local mock (see `frontend/src/api.ts`).
+- Provider execution calls `POST http://optimizer-service:8000/providers/execute`
+  (real Ollama local model; optional OpenAI when configured). There is no Mock
+  Model fallback node.

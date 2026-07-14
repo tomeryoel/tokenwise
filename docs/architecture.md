@@ -31,8 +31,8 @@ flowchart TB
     end
 
     subgraph L4 [Layer 4 - Model Providers]
-        MOCK["Mock model response
-        (real Ollama / external LLMs later)"]
+        OLLAMA["Ollama (local)"]
+        OPENAI["OpenAI (optional)"]
     end
 
     subgraph X [Cross-cutting - placeholder only]
@@ -44,7 +44,8 @@ flowchart TB
     N8N --> RAG
     N8N --> OPT
     N8N -. "only when file attached (later)" .-> IMG
-    N8N --> MOCK
+    OPT --> OLLAMA
+    OPT -. "when configured" .-> OPENAI
     N8N -->|"answer + Decision Receipt"| UI
     N8N -. "traces (later)" .-> LF
 ```
@@ -75,7 +76,8 @@ sequenceDiagram
             C-->>N: {hit:false, confidence}
             N->>O: POST /agent/run
             O-->>N: {selected_tier, tokens, cost, cost_saved}
-            N->>N: Mock model answer
+            N->>O: POST /providers/execute
+            O-->>N: real answer + usage metadata
             N->>G: POST /check/output (model answer)
             N->>C: POST /cache/store (best-effort, safe answer)
             N-->>UI: answer + receipt (savings_source=model_routing)
@@ -172,6 +174,6 @@ append reducer). Skipped branches never appear in `executed_nodes`.
 | Semantic cache / embeddings | Real (Day 4: MiniLM + ChromaDB, cosine, dept isolation) |
 | LangGraph optimizer decision | Real (Day 5: multi-node LangGraph, deterministic rules) |
 | PyTorch image analysis | Mocked (static class) |
-| Model provider call | Mocked answer string |
+| Model provider call | Real (Day 6: Ollama local + optional OpenAI via /providers/execute) |
 | Langfuse tracing | Placeholder only |
 | Usage DB / ROI | Not yet (Dashboard uses mock numbers) |
