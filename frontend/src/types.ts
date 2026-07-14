@@ -30,6 +30,20 @@ export interface DecisionReceipt {
   graph_path?: string | null;
   branch_reason?: string | null;
   executed_nodes?: string[] | null;
+  provider?: string | null;
+  model?: string | null;
+  requested_tier?: string | null;
+  executed_tier?: string | null;
+  actual_input_tokens?: number | null;
+  actual_output_tokens?: number | null;
+  actual_total_tokens?: number | null;
+  actual_cost?: number | null;
+  actual_cost_saved?: number | null;
+  latency_ms?: number | null;
+  used_fallback?: boolean | null;
+  privacy_enforced?: boolean | null;
+  cost_calculation_status?: string | null;
+  provider_attempts?: string[] | null;
 }
 
 export interface RunResponse {

@@ -90,6 +90,36 @@ export default function Playground({ policyMode, setPolicyMode }: Props) {
               />
               <Receipt label="cache_entry_id" value={val(result.receipt?.cache_entry_id)} />
               <Receipt label="selected_tier" value={val(result.receipt?.selected_tier)} />
+              <Receipt label="provider" value={val(result.receipt?.provider)} />
+              <Receipt label="model" value={val(result.receipt?.model)} />
+              <Receipt label="executed_tier" value={val(result.receipt?.executed_tier)} />
+              <Receipt
+                label="actual_input_tokens"
+                value={val(result.receipt?.actual_input_tokens)}
+              />
+              <Receipt
+                label="actual_output_tokens"
+                value={val(result.receipt?.actual_output_tokens)}
+              />
+              <Receipt
+                label="actual_total_tokens"
+                value={val(result.receipt?.actual_total_tokens)}
+              />
+              <Receipt label="actual_cost" value={money(result.receipt?.actual_cost)} />
+              <Receipt
+                label="actual_cost_saved"
+                value={money(result.receipt?.actual_cost_saved)}
+              />
+              <Receipt label="latency_ms" value={val(result.receipt?.latency_ms)} />
+              <Receipt label="used_fallback" value={val(result.receipt?.used_fallback)} />
+              <Receipt
+                label="privacy_enforced"
+                value={val(result.receipt?.privacy_enforced)}
+              />
+              <Receipt
+                label="cost_calculation_status"
+                value={val(result.receipt?.cost_calculation_status)}
+              />
               <Receipt
                 label="estimated_tokens"
                 value={val(result.receipt?.estimated_tokens)}
@@ -154,6 +184,18 @@ export default function Playground({ policyMode, setPolicyMode }: Props) {
                 wide
               />
             </div>
+
+            {Array.isArray(result.receipt?.provider_attempts) &&
+              result.receipt.provider_attempts.length > 0 && (
+                <div className="receipt-reasons">
+                  <span className="receipt-label">provider_attempts</span>
+                  <ul>
+                    {result.receipt.provider_attempts.map((a, i) => (
+                      <li key={i}>{a}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
             {Array.isArray(result.receipt?.executed_nodes) &&
               result.receipt.executed_nodes.length > 0 && (
