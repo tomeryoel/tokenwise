@@ -8,10 +8,9 @@ it reaches a model (guardrails, semantic cache, dynamic routing, compression),
 then reports the savings.
 
 > **Status:** four-layer end-to-end path is working. **Guardrails (Day 3)**,
-> **semantic cache (Day 4)**, **LangGraph optimizer (Day 5)** and **Layer 4
-> provider execution (Day 6)** are now real. PyTorch training, Langfuse tracing,
-> usage DB / dashboard metrics, and prompt compression execution remain for later
-> phases.
+> **semantic cache (Day 4)**, **LangGraph optimizer (Day 5)**, **Layer 4
+> provider execution (Day 6)**, and **usage DB + Dashboard metrics (Day 7)** are
+> now real. PyTorch training and Langfuse tracing remain for later phases.
 
 ## Architecture (four layers)
 
@@ -59,7 +58,7 @@ tokenwise/
     guardrails-service/       # FastAPI: /health /check/input /check/output
     rag-cache-service/        # FastAPI: /health /cache/lookup /cache/store /policy/query
     image-analyser-service/   # FastAPI: /health /analyse
-    optimizer-service/        # FastAPI: /health /agent/run /providers/execute /providers/health
+    optimizer-service/        # FastAPI: /health /agent/run /providers/* /usage/*
   n8n/
     tokenwise-skeleton.workflow.json  # import into n8n
     README.md                          # n8n setup instructions
@@ -194,15 +193,37 @@ packaging decision (four-service architecture preserved).
 
 Provider health: `GET http://localhost:8004/providers/health`
 
+## Usage database and Dashboard (Day 7)
+
+The optimizer-service persists terminal request outcomes in SQLite at
+`/app/data/usage/tokenwise.db` (Docker volume `usage_data`).
+
+- `POST /usage/log` — idempotent request logging (n8n calls on every terminal path)
+- `GET /usage/summary` — aggregated metrics for the Dashboard
+- `GET /usage/recent` — privacy-safe recent request list (no prompts)
+
+Dashboard fetches analytics via n8n read-only webhook:
+`GET http://localhost:5679/webhook/tokenwise-usage-summary`
+
+**Primary savings metric:** `actual_cost_saved` when known, else `estimated_savings`
+(one value per request — never double-counted).
+
+**ROI:** `savings_percentage` vs baseline is reported; true commercial ROI is not
+claimed (`roi_status: operating_cost_not_modeled`) because TokenWise operating
+cost is not yet modeled.
+
+**Privacy:** only SHA-256 prompt fingerprints stored; no raw prompts, PII, or secrets.
+
+Development reset (optional): `python -m usage.reset_db --force`
+
 ## What is still mocked
 
 - Image analyser returns a fixed class; not wired into the flow yet.
-- Dashboard shows mock metrics; no usage DB yet.
 - Langfuse is a commented placeholder in docker-compose.
 - Prompt compression is recommended only (not executed).
 
 Real: guardrails (Day 3), semantic cache (Day 4), LangGraph optimizer (Day 5),
-Layer 4 provider execution (Day 6).
+Layer 4 provider execution (Day 6), usage DB + Dashboard (Day 7).
 
 ## Frontend without Docker (optional)
 

@@ -173,6 +173,8 @@ append reducer). Skipped branches never appear in `executed_nodes`.
 | Guardrails logic | Real (Day 3: rules + regex, input & output) |
 | Semantic cache / embeddings | Real (Day 4: MiniLM + ChromaDB, cosine, dept isolation) |
 | LangGraph optimizer decision | Real (Day 5: multi-node LangGraph, deterministic rules) |
+| Usage DB / ROI analytics | Real (Day 7: SQLite in optimizer-service, Dashboard via n8n webhook) |
+| Dashboard metrics | Real (Day 7: from GET /usage/summary) |
 | PyTorch image analysis | Mocked (static class) |
 | Model provider call | Real (Day 6: Ollama local + optional OpenAI via /providers/execute) |
 
@@ -182,4 +184,3 @@ append reducer). Skipped branches never appear in `executed_nodes`.
 not counted in `actual_execution_attempt_count`.
 
 | Langfuse tracing | Placeholder only |
-| Usage DB / ROI | Not yet (Dashboard uses mock numbers) |

@@ -28,6 +28,15 @@ docker exec tokenwise-n8n-1 n8n publish:workflow --id=tokenwiseskeleton
 docker restart tokenwise-n8n-1
 ```
 
+Also import the usage-summary webhook (Day 7 Dashboard):
+
+```powershell
+docker cp n8n/tokenwise-usage-summary.workflow.json tokenwise-n8n-1:/tmp/usage-summary.json
+docker exec tokenwise-n8n-1 n8n import:workflow --input=/tmp/usage-summary.json
+docker exec tokenwise-n8n-1 n8n publish:workflow --id=tokenwiseusagesummary
+docker restart tokenwise-n8n-1
+```
+
 Only one workflow (`tokenwiseskeleton`) should be active for `/webhook/tokenwise`.
 Import deactivates the previous version automatically. The n8n named volume is
 preserved.

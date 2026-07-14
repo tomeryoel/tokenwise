@@ -276,6 +276,25 @@ are skipped candidates, not model calls.
 Ollama actual_cost=0 (local_zero_api_cost). Unknown paid models → actual_cost=null,
 cost_calculation_status=pricing_not_configured.
 
+### POST /usage/log (Day 7: idempotent usage persistence)
+Logs a terminal request outcome. Computes `prompt_fingerprint` server-side (SHA-256
+of normalized prompt). Does not store raw prompt text.
+
+Idempotency: `request_id` is unique; retries upsert the same row (no duplicates).
+
+Response: `{ "logged": true, "request_id": "...", "duplicate": false }`
+
+### GET /usage/summary?period_days=30&dept_id=optional
+Returns aggregated metrics. Primary savings per request uses `actual_cost_saved`
+when known, else `estimated_savings`. `roi_percentage` is null;
+`roi_status=operating_cost_not_modeled`.
+
+### GET /usage/recent?limit=20&dept_id=optional
+Privacy-safe recent requests (no prompt content).
+
+### GET /webhook/tokenwise-usage-summary (n8n → browser)
+Read-only n8n webhook proxies `GET /usage/summary` with CORS for the Dashboard.
+
 ## Final response returned by n8n to the UI
 
 Cache miss (model path):
