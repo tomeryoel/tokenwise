@@ -1,5 +1,9 @@
 import { useState } from "react";
 import type { PolicyMode } from "./types";
+import {
+  initialPlaygroundSession,
+  type PlaygroundSession,
+} from "./playgroundSession";
 import Playground from "./pages/Playground";
 import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
@@ -14,8 +18,9 @@ const TABS: { id: Tab; label: string }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("playground");
-  // Policy mode is shared: the Admin page and the Playground selector stay in sync.
   const [policyMode, setPolicyMode] = useState<PolicyMode>("balanced");
+  const [playgroundSession, setPlaygroundSession] =
+    useState<PlaygroundSession>(initialPlaygroundSession);
 
   return (
     <div className="app">
@@ -25,6 +30,7 @@ export default function App() {
           {TABS.map((t) => (
             <button
               key={t.id}
+              type="button"
               className={tab === t.id ? "nav-btn active" : "nav-btn"}
               onClick={() => setTab(t.id)}
             >
@@ -36,7 +42,12 @@ export default function App() {
 
       <main className="content">
         {tab === "playground" && (
-          <Playground policyMode={policyMode} setPolicyMode={setPolicyMode} />
+          <Playground
+            policyMode={policyMode}
+            setPolicyMode={setPolicyMode}
+            session={playgroundSession}
+            setSession={setPlaygroundSession}
+          />
         )}
         {tab === "dashboard" && <Dashboard />}
         {tab === "admin" && (
