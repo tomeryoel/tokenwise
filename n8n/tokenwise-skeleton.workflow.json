@@ -135,7 +135,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const outGuard = $json;\nconst cache = $('Cache Lookup').item.json;\nconst guardrail = $('Guardrails').item.json;\nconst cachedAnswer = cache.answer;\n\nlet answer;\nlet outStatus;\nif (outGuard.pass === false) {\n  answer = 'The generated response was blocked by the output guardrail.';\n  outStatus = 'blocked';\n} else {\n  answer = (outGuard.redacted_text && outGuard.redacted_text !== cachedAnswer) ? outGuard.redacted_text : cachedAnswer;\n  outStatus = 'passed';\n}\n\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: 'passed',\n    output_guardrail_status: outStatus,\n    output_guardrail_issues: outGuard.issues || [],\n    cache_status: 'hit',\n    cache_confidence: cache.confidence,\n    cache_entry_id: cache.entry_id,\n    selected_tier: 'cache',\n    estimated_tokens: (cache.estimated_tokens != null ? cache.estimated_tokens : 0),\n    estimated_cost: 0,\n    optimization_reason: 'semantic_cache_hit',\n    cost_saved: (cache.cost_saved != null ? cache.cost_saved : 0),\n    detected_risk_type: guardrail.detected_risk_type || null,\n    reason: 'semantic_cache_hit',\n    savings_source: 'semantic_cache',\n    savings_reason: 'semantic_cache_hit'\n  }\n} }];"
+        "jsCode": "const outGuard = $json;\nconst cache = $('Cache Lookup').item.json;\nconst guardrail = $('Guardrails').item.json;\nconst cachedAnswer = cache.answer;\n\nlet answer;\nlet outStatus;\nif (outGuard.pass === false) {\n  answer = 'The generated response was blocked by the output guardrail.';\n  outStatus = 'blocked';\n} else {\n  answer = (outGuard.redacted_text && outGuard.redacted_text !== cachedAnswer) ? outGuard.redacted_text : cachedAnswer;\n  outStatus = 'passed';\n}\n\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: 'passed',\n    output_guardrail_status: outStatus,\n    output_guardrail_issues: outGuard.issues || [],\n    cache_status: 'hit',\n    cache_confidence: cache.confidence,\n    cache_entry_id: cache.entry_id,\n    selected_tier: 'cache',\n    estimated_tokens: (cache.estimated_tokens != null ? cache.estimated_tokens : 0),\n    estimated_cost: 0,\n    optimization_reason: 'semantic_cache_hit',\n    cost_saved: (cache.cost_saved != null ? cache.cost_saved : 0),\n    detected_risk_type: guardrail.detected_risk_type || null,\n    reason: 'semantic_cache_hit',\n    savings_source: 'semantic_cache',\n    savings_reason: 'semantic_cache_hit',\n    provider: 'not called — semantic cache',\n    model: '-',\n    requested_tier: 'cache',\n    executed_tier: 'cache'\n  }\n} }];"
       },
       "id": "node-build-cached",
       "name": "Build Cached Response",
@@ -160,13 +160,58 @@
     },
     {
       "parameters": {
-        "jsCode": "// Mock model provider. Real Ollama / external LLM comes later. It receives\n// and preserves the optimizer's selected tier + plan for traceability.\nconst opt = $('Optimizer').item.json;\nreturn [{ json: {\n  answer: 'This is a mock answer from TokenWise (Day 1-5 skeleton). Real model routing comes later.',\n  selected_tier: opt.selected_tier,\n  optimization_plan: opt.optimization_plan,\n  decision_reasons: opt.decision_reasons\n} }];"
+        "method": "POST",
+        "url": "http://optimizer-service:8000/providers/execute",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $('Normalize').item.json.request_id, prompt: ($('Guardrails').item.json.safe_text || $('Normalize').item.json.prompt), selected_tier: $('Optimizer').item.json.selected_tier, fallback_tier: $('Optimizer').item.json.fallback_tier, policy_mode: $('Normalize').item.json.policy_mode, contains_sensitive_data: ($('Guardrails').item.json.contains_sensitive_data || false), require_local_model: ($('Guardrails').item.json.require_local_model || false), allow_external_model: ($('Guardrails').item.json.allow_external_model !== false), estimated_tokens: $('Optimizer').item.json.estimated_tokens, estimated_baseline_cost: $('Optimizer').item.json.estimated_baseline_cost, estimated_optimized_cost: $('Optimizer').item.json.estimated_optimized_cost, optimization_plan: $('Optimizer').item.json.optimization_plan }) }}",
+        "options": {}
       },
-      "id": "node-model",
-      "name": "Mock Model",
+      "id": "node-provider",
+      "name": "Provider Execute",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 380]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-provider-ok",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-if-provider",
+      "name": "Provider Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1320, 380]
+    },
+    {
+      "parameters": {
+        "jsCode": "const pe = $json;\nreturn [{ json: {\n  answer: 'Provider execution failed: ' + (pe.error_message || pe.error_code || 'unknown error'),\n  receipt: {\n    guardrail_status: 'passed',\n    output_guardrail_status: 'skipped',\n    cache_status: 'miss',\n    selected_tier: pe.requested_tier || 'none',\n    provider: pe.provider || 'none',\n    model: pe.model || '-',\n    requested_tier: pe.requested_tier,\n    executed_tier: pe.executed_tier || 'none',\n    error_code: pe.error_code,\n    provider_attempts: (pe.attempts || []).map(a => a.provider + '/' + a.tier + (a.success ? ' ok' : ' fail:' + a.error_code)),\n    savings_source: 'model_routing',\n    savings_reason: 'provider_failed'\n  }\n} }];"
+      },
+      "id": "node-build-provider-error",
+      "name": "Build Provider Error",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1120, 380]
+      "position": [1520, 500]
     },
     {
       "parameters": {
@@ -174,7 +219,7 @@
         "url": "http://guardrails-service:8000/check/output",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ request_id: $('Normalize').item.json.request_id, answer: $('Mock Model').item.json.answer }) }}",
+        "jsonBody": "={{ JSON.stringify({ request_id: $('Normalize').item.json.request_id, answer: $('Provider Execute').item.json.answer }) }}",
         "options": {}
       },
       "id": "node-guardrails-output",
@@ -189,7 +234,7 @@
         "url": "http://rag-cache-service:8000/cache/store",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ query: ($('Guardrails').item.json.safe_text || $('Normalize').item.json.prompt), answer: ($json.redacted_text || $('Mock Model').item.json.answer), dept_id: $('Normalize').item.json.dept_id, task_type: $('Normalize').item.json.task_type, contains_sensitive_data: ($('Guardrails').item.json.contains_sensitive_data || false), output_guardrail_passed: ($json.pass !== false) }) }}",
+        "jsonBody": "={{ JSON.stringify({ query: ($('Guardrails').item.json.safe_text || $('Normalize').item.json.prompt), answer: ($json.redacted_text || $('Provider Execute').item.json.answer), dept_id: $('Normalize').item.json.dept_id, task_type: $('Normalize').item.json.task_type, contains_sensitive_data: ($('Guardrails').item.json.contains_sensitive_data || false), output_guardrail_passed: ($json.pass !== false) }) }}",
         "options": {}
       },
       "id": "node-cache-store",
@@ -201,7 +246,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const outGuard = $('Guardrails Output').item.json;\nconst optimizer = $('Optimizer').item.json;\nconst guardrail = $('Guardrails').item.json;\nconst cache = $('Cache Lookup').item.json;\nconst modelAnswer = $('Mock Model').item.json.answer;\n\nlet answer;\nlet outStatus;\nif (outGuard.pass === false) {\n  answer = 'The generated response was blocked by the output guardrail.';\n  outStatus = 'blocked';\n} else {\n  answer = (outGuard.redacted_text && outGuard.redacted_text !== modelAnswer) ? outGuard.redacted_text : modelAnswer;\n  outStatus = 'passed';\n}\n\nconst inStatus = guardrail.requires_redaction ? 'passed_with_redaction' : 'passed';\n\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: inStatus,\n    output_guardrail_status: outStatus,\n    output_guardrail_issues: outGuard.issues || [],\n    cache_status: 'miss',\n    cache_confidence: (cache.confidence != null ? cache.confidence : 0),\n    cache_entry_id: null,\n    selected_tier: optimizer.selected_tier,\n    estimated_tokens: optimizer.estimated_tokens,\n    estimated_cost: optimizer.estimated_cost,\n    optimization_reason: optimizer.optimization_reason,\n    cost_saved: optimizer.cost_saved,\n    detected_risk_type: guardrail.detected_risk_type || null,\n    reason: guardrail.reason || 'passed',\n    savings_source: 'model_routing',\n    savings_reason: 'cheaper_model_selected',\n    task_type: optimizer.task_type,\n    complexity_score: optimizer.complexity_score,\n    complexity_level: optimizer.complexity_level,\n    compression_recommended: optimizer.compression_recommended,\n    compression_target_ratio: optimizer.compression_target_ratio,\n    compression_reason: optimizer.compression_reason,\n    compression_risk: optimizer.compression_risk,\n    fallback_tier: optimizer.fallback_tier,\n    estimated_baseline_cost: optimizer.estimated_baseline_cost,\n    estimated_optimized_cost: optimizer.estimated_optimized_cost,\n    decision_reasons: optimizer.decision_reasons || [],\n    graph_path: optimizer.graph_path,\n    branch_reason: optimizer.branch_reason,\n    executed_nodes: optimizer.executed_nodes || []\n  }\n} }];"
+        "jsCode": "const outGuard = $('Guardrails Output').item.json;\nconst optimizer = $('Optimizer').item.json;\nconst guardrail = $('Guardrails').item.json;\nconst cache = $('Cache Lookup').item.json;\nconst provider = $('Provider Execute').item.json;\nconst modelAnswer = provider.answer;\n\nlet answer;\nlet outStatus;\nif (outGuard.pass === false) {\n  answer = 'The generated response was blocked by the output guardrail.';\n  outStatus = 'blocked';\n} else {\n  answer = (outGuard.redacted_text && outGuard.redacted_text !== modelAnswer) ? outGuard.redacted_text : modelAnswer;\n  outStatus = 'passed';\n}\n\nconst inStatus = guardrail.requires_redaction ? 'passed_with_redaction' : 'passed';\nconst savingsReason = provider.used_fallback ? 'provider_fallback' : 'cheaper_model_selected';\n\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: inStatus,\n    output_guardrail_status: outStatus,\n    output_guardrail_issues: outGuard.issues || [],\n    cache_status: 'miss',\n    cache_confidence: (cache.confidence != null ? cache.confidence : 0),\n    cache_entry_id: null,\n    selected_tier: optimizer.selected_tier,\n    estimated_tokens: optimizer.estimated_tokens,\n    estimated_cost: optimizer.estimated_cost,\n    optimization_reason: optimizer.optimization_reason,\n    cost_saved: optimizer.cost_saved,\n    detected_risk_type: guardrail.detected_risk_type || null,\n    reason: guardrail.reason || 'passed',\n    savings_source: 'model_routing',\n    savings_reason: savingsReason,\n    task_type: optimizer.task_type,\n    complexity_score: optimizer.complexity_score,\n    complexity_level: optimizer.complexity_level,\n    compression_recommended: optimizer.compression_recommended,\n    compression_target_ratio: optimizer.compression_target_ratio,\n    compression_reason: optimizer.compression_reason,\n    compression_risk: optimizer.compression_risk,\n    fallback_tier: optimizer.fallback_tier,\n    estimated_baseline_cost: optimizer.estimated_baseline_cost,\n    estimated_optimized_cost: optimizer.estimated_optimized_cost,\n    decision_reasons: optimizer.decision_reasons || [],\n    graph_path: optimizer.graph_path,\n    branch_reason: optimizer.branch_reason,\n    executed_nodes: optimizer.executed_nodes || [],\n    provider: provider.provider,\n    model: provider.model,\n    requested_tier: provider.requested_tier,\n    executed_tier: provider.executed_tier,\n    actual_input_tokens: provider.actual_input_tokens,\n    actual_output_tokens: provider.actual_output_tokens,\n    actual_total_tokens: provider.actual_total_tokens,\n    actual_cost: provider.actual_cost,\n    actual_cost_saved: provider.actual_cost_saved,\n    latency_ms: provider.latency_ms,\n    used_fallback: provider.used_fallback,\n    fallback_reason: provider.fallback_reason,\n    privacy_enforced: provider.privacy_enforced,\n    cost_calculation_status: provider.cost_calculation_status,\n    provider_attempts: (provider.attempts || []).map(a => a.provider + '/' + a.tier + (a.success ? ' ok' : ' fail:' + (a.error_code || '')))\n  }\n} }];"
       },
       "id": "node-build",
       "name": "Build Response",
@@ -211,7 +256,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const g = $json;\nconst tokens = (g.estimated_tokens != null) ? g.estimated_tokens : 0;\nconst saved = g.cost_saved_by_blocking || 0;\nreturn [{ json: {\n  answer: 'Request blocked by TokenWise guardrails: ' + (g.reason || 'blocked'),\n  receipt: {\n    guardrail_status: 'blocked',\n    output_guardrail_status: 'skipped',\n    output_guardrail_issues: [],\n    cache_status: 'skipped',\n    cache_confidence: 0,\n    cache_entry_id: null,\n    selected_tier: 'none',\n    estimated_tokens: tokens,\n    estimated_cost: 0,\n    optimization_reason: 'Blocked: ' + (g.reason || '') + (g.policy_triggered ? ' [' + g.policy_triggered + ']' : ''),\n    cost_saved: saved,\n    detected_risk_type: g.detected_risk_type || null,\n    reason: g.reason || 'blocked',\n    savings_source: 'guardrails_cost_governance',\n    savings_reason: g.reason || 'blocked'\n  }\n} }];"
+        "jsCode": "const g = $json;\nconst tokens = (g.estimated_tokens != null) ? g.estimated_tokens : 0;\nconst saved = g.cost_saved_by_blocking || 0;\nreturn [{ json: {\n  answer: 'Request blocked by TokenWise guardrails: ' + (g.reason || 'blocked'),\n  receipt: {\n    guardrail_status: 'blocked',\n    output_guardrail_status: 'skipped',\n    output_guardrail_issues: [],\n    cache_status: 'skipped',\n    cache_confidence: 0,\n    cache_entry_id: null,\n    selected_tier: 'none',\n    estimated_tokens: tokens,\n    estimated_cost: 0,\n    optimization_reason: 'Blocked: ' + (g.reason || '') + (g.policy_triggered ? ' [' + g.policy_triggered + ']' : ''),\n    cost_saved: saved,\n    detected_risk_type: g.detected_risk_type || null,\n    reason: g.reason || 'blocked',\n    savings_source: 'guardrails_cost_governance',\n    savings_reason: g.reason || 'blocked',\n    provider: 'not called — guardrail block',\n    model: '-'\n  }\n} }];"
       },
       "id": "node-build-blocked",
       "name": "Build Blocked",
@@ -257,11 +302,18 @@
     },
     "Output Guardrails (cached)": { "main": [[{ "node": "Build Cached Response", "type": "main", "index": 0 }]] },
     "Build Cached Response": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
-    "Optimizer": { "main": [[{ "node": "Mock Model", "type": "main", "index": 0 }]] },
-    "Mock Model": { "main": [[{ "node": "Guardrails Output", "type": "main", "index": 0 }]] },
+    "Optimizer": { "main": [[{ "node": "Provider Execute", "type": "main", "index": 0 }]] },
+    "Provider Execute": { "main": [[{ "node": "Provider Success?", "type": "main", "index": 0 }]] },
+    "Provider Success?": {
+      "main": [
+        [{ "node": "Guardrails Output", "type": "main", "index": 0 }],
+        [{ "node": "Build Provider Error", "type": "main", "index": 0 }]
+      ]
+    },
     "Guardrails Output": { "main": [[{ "node": "Cache Store", "type": "main", "index": 0 }]] },
     "Cache Store": { "main": [[{ "node": "Build Response", "type": "main", "index": 0 }]] },
     "Build Response": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
+    "Build Provider Error": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
     "Build Blocked": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
   },
   "active": false,
