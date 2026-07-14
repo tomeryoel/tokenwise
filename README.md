@@ -151,17 +151,20 @@ On a miss, the model path runs and the safe final answer is stored (best-effort)
 
 ## Optimizer LangGraph (Day 5)
 
-The `optimizer-service` is a real, deterministic **LangGraph** state graph
-(`services/optimizer-service/graph.py`) with explicit nodes:
-`normalize_inputs -> classify_task -> estimate_complexity ->
-evaluate_sensitivity -> evaluate_cache_signal -> apply_policy_mode ->
-decide_compression -> select_model_tier -> build_fallback_plan ->
-calculate_estimated_savings -> build_optimization_plan`.
+The `optimizer-service` is a real, deterministic, **conditional** **LangGraph**
+state graph (`services/optimizer-service/graph.py`). A router
+(`route_request_path`) uses conditional edges to pick one of five paths -
+`reject_path`, `cache_path`, `local_only_path`, `vision_path`,
+`standard_optimization_path` - and the standard path has a second conditional edge
+(`should_recommend_compression`) that runs the compression node only when needed.
+All paths converge into cost estimation + final plan.
 
 It returns a structured Optimization Plan (routing tier, compression
-recommendation, fallback plan, cost/savings estimate, decision reasons). Policy
-modes (`conservative`/`balanced`/`aggressive`) can produce different plans for the
-same prompt. See [docs/architecture.md](docs/architecture.md) for the graph diagram.
+recommendation, fallback plan, cost/savings estimate, decision reasons) plus graph
+observability (`graph_path`, `branch_reason`, `executed_nodes`). Policy modes
+(`conservative`/`balanced`/`aggressive`) can produce different plans for the same
+prompt. See [docs/architecture.md](docs/architecture.md) for the graph diagram and
+the command to print the compiled graph as Mermaid.
 
 Run the optimizer unit tests without Docker/n8n:
 

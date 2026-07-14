@@ -142,13 +142,29 @@ Response (mock):
 
 ## optimizer-service (Day 5: real LangGraph Optimization Engine)
 
-A deterministic multi-node **LangGraph** state graph (`graph.py`) turns request
-signals into a structured Optimization Plan. No LLM is used inside the graph.
+A deterministic, **conditional** **LangGraph** state graph (`graph.py`) turns
+request signals into a structured Optimization Plan. No LLM is used inside the
+graph.
 
-**Graph nodes (in order):** `normalize_inputs -> classify_task ->
-estimate_complexity -> evaluate_sensitivity -> evaluate_cache_signal ->
-apply_policy_mode -> decide_compression -> select_model_tier ->
-build_fallback_plan -> calculate_estimated_savings -> build_optimization_plan`.
+**Shared prefix:** `normalize_inputs -> classify_task -> estimate_complexity ->
+evaluate_sensitivity -> evaluate_cache_signal -> route_request_path`.
+
+**Conditional edge #1 (`route_request_path`)** dispatches to one of five paths:
+`reject_path` (guardrail blocked), `cache_path` (cache hit >= 0.88),
+`local_only_path` (sensitive/require_local), `vision_path` (image complexity >= 0.5),
+or `standard_optimization_path`.
+
+**Standard path:** `apply_policy_mode -> {decide_compression | skip_compression}
+-> select_model_tier -> build_fallback_plan`.
+
+**Conditional edge #2 (`should_recommend_compression`)** runs `decide_compression`
+only for long-enough prompts, else `skip_compression`.
+
+**Convergence:** all paths -> `calculate_estimated_savings -> build_optimization_plan`.
+
+The response also carries graph observability: `graph_path`, `branch_reason`, and
+`executed_nodes` (only nodes that actually ran; skipped branches never appear).
+See `docs/architecture.md` for the Mermaid diagram and the print-graph command.
 
 **Routing tiers:** `local | cheap | balanced | premium | vision | reject | cache | fallback`.
 
@@ -194,6 +210,12 @@ Response (rich plan + legacy compatibility fields):
   "estimated_optimized_cost": 0.0000035,
   "estimated_savings": 0.0002065,
   "decision_reasons": ["task_type=support_request (...)", "complexity=0.25 (low) ...", "..."],
+  "graph_path": "standard_optimization_path",
+  "branch_reason": "normal non-sensitive cache-miss request",
+  "executed_nodes": ["normalize_inputs", "classify_task", "estimate_complexity",
+    "evaluate_sensitivity", "evaluate_cache_signal", "route_request_path",
+    "apply_policy_mode", "skip_compression", "select_model_tier",
+    "build_fallback_plan", "calculate_estimated_savings", "build_optimization_plan"],
   "optimization_plan": { "route": "cheap", "compress": false, "compression_target_ratio": 1.0,
     "local_only": false, "allow_external": true, "fallback_tier": "balanced" },
   "estimated_tokens": 7,

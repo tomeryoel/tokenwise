@@ -83,12 +83,15 @@ sequenceDiagram
     end
 ```
 
-## Optimizer LangGraph (Day 5)
+## Optimizer LangGraph (Day 5 + Day 5.1 conditional graph)
 
-The `optimizer-service` is a deterministic multi-node LangGraph state graph. On a
-cache miss, n8n calls it with request + guardrail + cache signals; it returns a
-structured Optimization Plan (tier, compression recommendation, fallback,
-cost/savings, decision reasons).
+The `optimizer-service` is a deterministic, **conditional** LangGraph state graph.
+It is not a linear pipeline: after a shared signal-evaluation prefix, a router
+uses **conditional edges** to send each request down one of five distinct paths,
+and the standard path has a second conditional edge for compression. This is why
+LangGraph is used instead of a plain sequential function - real branching with
+inspectable, independently-testable paths. On a cache miss, n8n calls it with the
+request + guardrail + cache signals; it returns a structured Optimization Plan.
 
 ```mermaid
 flowchart TB
@@ -97,26 +100,66 @@ flowchart TB
     N2 --> N3[estimate_complexity]
     N3 --> N4[evaluate_sensitivity]
     N4 --> N5[evaluate_cache_signal]
-    N5 --> N6[apply_policy_mode]
-    N6 --> N7[decide_compression]
-    N7 --> N8[select_model_tier]
-    N8 --> N9[build_fallback_plan]
-    N9 --> N10[calculate_estimated_savings]
-    N10 --> N11[build_optimization_plan]
-    N11 --> E((end))
+    N5 --> R{route_request_path}
+
+    R -->|guardrail blocked| RJ[reject_path]
+    R -->|cache hit >= 0.88| CA[cache_path]
+    R -->|require_local / sensitive| LO[local_only_path]
+    R -->|image complexity >= 0.5| VI[vision_path]
+    R -->|otherwise| PM[apply_policy_mode]
+
+    PM --> C{should_recommend_compression}
+    C -->|tokens >= threshold| DC[decide_compression]
+    C -->|too short| SC[skip_compression]
+    DC --> ST[select_model_tier]
+    SC --> ST
+    ST --> FB[build_fallback_plan]
+
+    RJ --> CS[calculate_estimated_savings]
+    CA --> CS
+    LO --> CS
+    VI --> CS
+    FB --> CS
+    CS --> BP[build_optimization_plan]
+    BP --> E((end))
 ```
 
+You can print the compiled graph as Mermaid at any time (uses LangGraph's built-in
+exporter, no extra libraries):
+
+```
+docker compose run --rm --no-deps optimizer-service \
+  python -c "from graph import mermaid; print(mermaid())"
+```
+
+**Path priority (in `route_request_path`):**
+1. `reject_path` - guardrail blocked (defensive; n8n normally short-circuits first).
+2. `cache_path` - cache hit with confidence >= 0.88 (defensive; normally short-circuited).
+3. `local_only_path` - `require_local_model` / sensitive: tier `local`, `local_only=true`, `allow_external=false`, no external fallback.
+4. `vision_path` - `has_image` and image complexity >= 0.5: tier `vision`, premium multimodal fallback.
+5. `standard_optimization_path` - everything else.
+
+**Standard path** runs `apply_policy_mode` then a conditional compression edge:
+`decide_compression` only executes when the prompt is long enough for the current
+policy mode; otherwise `skip_compression` runs. Then `select_model_tier` ->
+`build_fallback_plan`.
+
+**Convergence:** every path (terminal or standard) flows into
+`calculate_estimated_savings` -> `build_optimization_plan`, so cost/savings and the
+final plan are computed in exactly one place.
+
+**Observability:** the response includes `graph_path` (which branch ran),
+`branch_reason` (why), and `executed_nodes` (the exact nodes that executed, via an
+append reducer). Skipped branches never appear in `executed_nodes`.
+
 - **Tiers:** local, cheap, balanced, premium, vision, reject, cache, fallback.
-- **Sensitive / require_local -> local** (no external fallback).
-- **Blocked guardrail -> reject** (defensive; normally short-circuited earlier).
-- **Cache hit signal -> cache** (defensive; normally short-circuited earlier).
 - **Complexity** blends length, task type, reasoning keywords, code/doc, image,
   and quality signals (not just length).
 - **Policy modes** (conservative/balanced/aggressive) can produce different plans
   for the same prompt.
 - Cost uses a static per-1k-token table; savings = premium baseline - optimized,
-  never negative. `optimization_plan` and `decision_reasons` are surfaced in the
-  Decision Receipt.
+  never negative. `optimization_plan`, `decision_reasons`, `graph_path`,
+  `branch_reason` and `executed_nodes` are surfaced in the Decision Receipt.
 
 ## What is real vs mocked in this step
 
