@@ -4,6 +4,32 @@ const WEBHOOK_URL =
   import.meta.env.VITE_N8N_WEBHOOK_URL ??
   "http://localhost:5678/webhook/tokenwise";
 
+const USAGE_SUMMARY_URL =
+  import.meta.env.VITE_USAGE_SUMMARY_URL ??
+  "http://localhost:5679/webhook/tokenwise-usage-summary";
+
+export interface UsageSummary {
+  period_days: number;
+  total_requests: number;
+  completed_requests: number;
+  blocked_requests: number;
+  total_actual_cost: number;
+  total_estimated_baseline_cost: number;
+  total_savings: number;
+  savings_percentage: number | null;
+  roi_percentage: number | null;
+  roi_status: string;
+  cache_hit_rate: number;
+  guardrail_block_rate: number;
+  premium_usage_rate: number;
+  fallback_rate: number;
+  average_latency_ms: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  requests_by_source: Record<string, number>;
+  savings_by_source: Record<string, number>;
+}
+
 /**
  * Send a prompt through the TokenWise pipeline.
  *
@@ -36,6 +62,17 @@ export async function runPrompt(
   } catch {
     return temporaryMock(prompt, policyMode);
   }
+}
+
+export async function fetchUsageSummary(
+  deptId?: string,
+  periodDays = 30,
+): Promise<UsageSummary> {
+  const params = new URLSearchParams({ period_days: String(periodDays) });
+  if (deptId) params.set("dept_id", deptId);
+  const res = await fetch(`${USAGE_SUMMARY_URL}?${params.toString()}`);
+  if (!res.ok) throw new Error(`usage summary returned ${res.status}`);
+  return res.json();
 }
 
 // ---------------------------------------------------------------------------
