@@ -1,19 +1,17 @@
-"""optimizer-service (walking skeleton).
+"""optimizer-service (Day 5: real LangGraph Optimization Engine).
 
-Day 1-2: mock optimization "plan". The response shape matches what the real
-LangGraph optimizer will return later, so n8n and the UI will not need changes.
-The numbers are lightly derived from prompt length + policy_mode so the skeleton
-feels alive, but there is NO real decision logic yet.
+The mocked static optimizer is replaced by an explicit, deterministic LangGraph
+state graph (see graph.py). /agent/run returns the full Optimization Plan plus
+the legacy compatibility fields the n8n workflow + React receipt already expect
+(selected_tier, estimated_tokens, estimated_cost, cost_saved, optimization_reason).
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-SERVICE_NAME = "optimizer-service"
+from graph import run_optimizer
 
-# Mock per-1k-token prices (USD). Real price table + token counting come later.
-PREMIUM_PRICE_PER_1K = 0.03
-TIER_PRICE_PER_1K = {"local": 0.0, "cheap": 0.0005, "balanced": 0.003, "premium": 0.03}
+SERVICE_NAME = "optimizer-service"
 
 app = FastAPI(title=SERVICE_NAME)
 
@@ -29,8 +27,21 @@ class AgentRunRequest(BaseModel):
     request_id: str | None = None
     prompt: str = ""
     policy_mode: str = "balanced"
+    # Signals forwarded by n8n (guardrails + cache + normalized request).
     guardrail_status: str = "passed"
+    guardrail_reason: str = ""
     cache_status: str = "miss"
+    cache_confidence: float = 0.0
+    contains_sensitive_data: bool = False
+    require_local_model: bool = False
+    allow_external_model: bool = True
+    estimated_tokens: int = 0
+    quality_requirement: str = ""
+    latency_requirement: str = "normal"
+    has_image: bool = False
+    image_class: str = ""
+    image_complexity: float = 0.0
+    max_cost: float | None = None
 
 
 @app.get("/health")
@@ -40,30 +51,41 @@ def health():
 
 @app.post("/agent/run")
 def agent_run(req: AgentRunRequest):
-    # MOCK token estimate: ~4 chars per token, rounded.
-    estimated_tokens = max(1, round(len(req.prompt) / 4))
+    result = run_optimizer(req.model_dump())
 
-    # MOCK tier choice: policy_mode nudges the tier. No real complexity analysis.
-    mode = (req.policy_mode or "balanced").lower()
-    if mode == "aggressive":
-        tier = "cheap"
-    elif mode == "conservative":
-        tier = "balanced"
-    else:
-        tier = "cheap" if estimated_tokens < 200 else "balanced"
+    tier = result.get("selected_tier", "cheap")
+    task_type = result.get("task_type", "unknown")
+    level = result.get("complexity_level", "medium")
+    reasons = result.get("decision_reasons", [])
 
-    tier_price = TIER_PRICE_PER_1K.get(tier, TIER_PRICE_PER_1K["cheap"])
-    estimated_cost = round(estimated_tokens / 1000 * tier_price, 6)
-    baseline_cost = round(estimated_tokens / 1000 * PREMIUM_PRICE_PER_1K, 6)
-    cost_saved = round(max(0.0, baseline_cost - estimated_cost), 6)
+    # Compatibility summary string for the existing receipt field.
+    optimization_reason = (
+        f"{task_type}/{level} -> {tier} tier "
+        f"[{result.get('policy_mode', 'balanced')}]"
+    )
 
     return {
+        # --- rich Optimization Plan ---
+        "request_id": result.get("request_id", req.request_id or ""),
+        "task_type": task_type,
+        "complexity_score": result.get("complexity_score", 0.0),
+        "complexity_level": level,
         "selected_tier": tier,
-        "estimated_tokens": estimated_tokens,
-        "estimated_cost": estimated_cost,
-        "optimization_reason": (
-            f"[MOCK] policy_mode={mode}, cache={req.cache_status}, "
-            f"guardrail={req.guardrail_status} -> {tier} tier"
-        ),
-        "cost_saved": cost_saved,
+        "compression_recommended": result.get("compression_recommended", False),
+        "compression_target_ratio": result.get("compression_target_ratio", 1.0),
+        "compression_reason": result.get("compression_reason", ""),
+        "compression_risk": result.get("compression_risk", "low"),
+        "fallback_tier": result.get("fallback_tier", "balanced"),
+        "fallback_reason": result.get("fallback_reason", ""),
+        "escalation_conditions": result.get("escalation_conditions", []),
+        "estimated_baseline_cost": result.get("estimated_baseline_cost", 0.0),
+        "estimated_optimized_cost": result.get("estimated_optimized_cost", 0.0),
+        "estimated_savings": result.get("estimated_savings", 0.0),
+        "decision_reasons": reasons,
+        "optimization_plan": result.get("optimization_plan", {}),
+        # --- legacy compatibility fields (do not remove) ---
+        "estimated_tokens": result.get("estimated_tokens", 0),
+        "estimated_cost": result.get("estimated_optimized_cost", 0.0),
+        "cost_saved": result.get("estimated_savings", 0.0),
+        "optimization_reason": optimization_reason,
     }
