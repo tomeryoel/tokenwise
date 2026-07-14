@@ -113,6 +113,14 @@ export default function Playground({ policyMode, setPolicyMode }: Props) {
               <Receipt label="latency_ms" value={val(result.receipt?.latency_ms)} />
               <Receipt label="used_fallback" value={val(result.receipt?.used_fallback)} />
               <Receipt
+                label="actual_execution_attempt_count"
+                value={val(result.receipt?.actual_execution_attempt_count)}
+              />
+              <Receipt
+                label="prompt_redaction_applied"
+                value={val(result.receipt?.prompt_redaction_applied)}
+              />
+              <Receipt
                 label="privacy_enforced"
                 value={val(result.receipt?.privacy_enforced)}
               />

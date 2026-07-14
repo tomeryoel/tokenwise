@@ -43,6 +43,8 @@ export interface DecisionReceipt {
   used_fallback?: boolean | null;
   privacy_enforced?: boolean | null;
   cost_calculation_status?: string | null;
+  actual_execution_attempt_count?: number | null;
+  prompt_redaction_applied?: boolean | null;
   provider_attempts?: string[] | null;
 }
 
