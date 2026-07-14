@@ -1,15 +1,22 @@
-"""optimizer-service (Day 5: real LangGraph Optimization Engine).
+"""optimizer-service (Day 5: LangGraph + Day 6: Layer 4 provider execution).
 
-The mocked static optimizer is replaced by an explicit, deterministic LangGraph
-state graph (see graph.py). /agent/run returns the full Optimization Plan plus
-the legacy compatibility fields the n8n workflow + React receipt already expect
-(selected_tier, estimated_tokens, estimated_cost, cost_saved, optimization_reason).
+Two distinct responsibilities behind separate endpoints:
+
+1. POST /agent/run  - LangGraph Optimization Plan (graph.py)
+2. POST /providers/execute - Layer 4 model provider execution (providers/)
+
+Provider adapters are packaged inside optimizer-service as an MVP decision to
+preserve the lecturer-required four FastAPI microservices. A commercial version
+may later extract them into a dedicated gateway/runtime service.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 from graph import run_optimizer
+from providers.executor import execute_provider
+from providers.ollama_provider import OllamaProvider
+from providers.openai_provider import OpenAIProvider
+from providers.schemas import ProviderExecuteRequest
 
 SERVICE_NAME = "optimizer-service"
 
@@ -23,11 +30,14 @@ app.add_middleware(
 )
 
 
+# Re-use AgentRunRequest from existing main - import inline to avoid circular deps
+from pydantic import BaseModel  # noqa: E402
+
+
 class AgentRunRequest(BaseModel):
     request_id: str | None = None
     prompt: str = ""
     policy_mode: str = "balanced"
-    # Signals forwarded by n8n (guardrails + cache + normalized request).
     guardrail_status: str = "passed"
     guardrail_reason: str = ""
     cache_status: str = "miss"
@@ -49,6 +59,15 @@ def health():
     return {"status": "ok", "service": SERVICE_NAME}
 
 
+@app.get("/providers/health")
+async def providers_health():
+    ollama = OllamaProvider()
+    openai = OpenAIProvider()
+    ollama_health = await ollama.check_health()
+    openai_health = await openai.check_health()
+    return {"ollama": ollama_health, "openai": openai_health}
+
+
 @app.post("/agent/run")
 def agent_run(req: AgentRunRequest):
     result = run_optimizer(req.model_dump())
@@ -58,14 +77,12 @@ def agent_run(req: AgentRunRequest):
     level = result.get("complexity_level", "medium")
     reasons = result.get("decision_reasons", [])
 
-    # Compatibility summary string for the existing receipt field.
     optimization_reason = (
         f"{task_type}/{level} -> {tier} tier "
         f"[{result.get('policy_mode', 'balanced')}]"
     )
 
     return {
-        # --- rich Optimization Plan ---
         "request_id": result.get("request_id", req.request_id or ""),
         "task_type": task_type,
         "complexity_score": result.get("complexity_score", 0.0),
@@ -83,13 +100,16 @@ def agent_run(req: AgentRunRequest):
         "estimated_savings": result.get("estimated_savings", 0.0),
         "decision_reasons": reasons,
         "optimization_plan": result.get("optimization_plan", {}),
-        # --- graph observability (Day 5.1 conditional graph) ---
         "graph_path": result.get("graph_path", "standard_optimization_path"),
         "branch_reason": result.get("branch_reason", ""),
         "executed_nodes": result.get("executed_nodes", []),
-        # --- legacy compatibility fields (do not remove) ---
         "estimated_tokens": result.get("estimated_tokens", 0),
         "estimated_cost": result.get("estimated_optimized_cost", 0.0),
         "cost_saved": result.get("estimated_savings", 0.0),
         "optimization_reason": optimization_reason,
     }
+
+
+@app.post("/providers/execute")
+async def providers_execute(req: ProviderExecuteRequest):
+    return await execute_provider(req)

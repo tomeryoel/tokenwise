@@ -39,6 +39,24 @@ services:
     build: ./services/optimizer-service
     ports:
       - "8004:8000"
+    environment:
+      # Layer 4 provider configuration (Ollama local + optional OpenAI).
+      # host.docker.internal reaches native Windows Ollama from the container.
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_LOCAL_MODEL=llama3.1:latest
+      - OLLAMA_CHEAP_MODEL=llama3.1:latest
+      - OLLAMA_BALANCED_MODEL=llama3.1:latest
+      - OLLAMA_REQUEST_TIMEOUT_SECONDS=120
+      - ENABLE_OPENAI_PROVIDER=false
+      - OPENAI_API_KEY=
+      - OPENAI_BASE_URL=https://api.openai.com/v1
+      - OPENAI_CHEAP_MODEL=
+      - OPENAI_BALANCED_MODEL=
+      - OPENAI_PREMIUM_MODEL=
+      - OPENAI_REQUEST_TIMEOUT_SECONDS=60
+      - MODEL_PRICING_CONFIG_PATH=/app/config/model_pricing.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   n8n:
