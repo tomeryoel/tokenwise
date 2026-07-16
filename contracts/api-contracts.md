@@ -127,9 +127,17 @@ Storage is skipped (with `stored: false` and a `reason`) when
 `output_guardrail_passed=false` (`output_guardrail_failed`),
 empty query (`empty_query`), or empty answer (`empty_answer`).
 
-### POST /policy/query
+### POST /policy/query (Policy Evidence Retrieval — placeholder)
 Request: `{ "prompt": "...", "k": 3 }`
 Response (basic placeholder): `{ "policies": [] }`
+
+This endpoint is the intended home of **Policy Evidence Retrieval** (RAG over uploaded
+policy documents for clauses, source references, and audit evidence). It is **not**
+implemented: the handler ignores `prompt`/`k` and always returns an empty list, no policy
+vector collection is seeded, and n8n never calls it. It is **not** a source of truth for
+runtime enforcement — hard routing/privacy/budget/provider decisions come from the
+**Structured Policy Engine** (today: the `policy_mode` config). See
+[../docs/policy-intelligence-design.md](../docs/policy-intelligence-design.md).
 
 ## image-analyser-service
 

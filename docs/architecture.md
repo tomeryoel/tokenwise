@@ -177,6 +177,8 @@ append reducer). Skipped branches never appear in `executed_nodes`.
 | Dashboard metrics | Real (Day 7: from GET /usage/summary) |
 | PyTorch image analysis | Mocked (static class) |
 | Model provider call | Real (Day 6: Ollama local + optional OpenAI via /providers/execute) |
+| Structured policy (`policy_mode` config) | Real (config enum drives compression thresholds + tier selection) |
+| Policy Evidence Retrieval (`/policy/query`) | Placeholder (returns `{"policies": []}`; not wired into n8n) |
 
 **Provider execution limit:** at most **two actual HTTP model calls** per request
 (one primary, one fallback). Skipped OpenAI configuration checks appear in
@@ -184,3 +186,23 @@ append reducer). Skipped branches never appear in `executed_nodes`.
 not counted in `actual_execution_attempt_count`.
 
 | Langfuse tracing | Placeholder only |
+
+## Policy Intelligence (design)
+
+TokenWise **Policy Intelligence** is defined as two complementary layers, so that
+unstructured retrieved text is never the sole authority for hard runtime decisions:
+
+- **Structured Policy Engine** — deterministic, approved policy values; the runtime
+  source of truth that supplies explicit fields to Guardrails and the LangGraph optimizer.
+- **Policy Evidence Retrieval** — RAG over uploaded policy documents; supplies clauses,
+  source references, and explanations for audit/receipt only. It must not override a
+  structured hard rule or auto-enforce extracted text without approval.
+
+Today only the **structured** side exists in a minimal form: `policy_mode`
+(`conservative`/`balanced`/`aggressive`) is a config enum flowing UI → n8n → optimizer.
+`POST /policy/query` on `rag-cache-service` is a placeholder returning `{"policies": []}`
+and is not wired into the n8n flow — so **Policy RAG is not implemented**. The full model
+(policy hierarchy, presets, Policy Center, effective-policy preview, document ingestion,
+candidate-rule approval, LangGraph integration, Decision Receipt fields, MVP scope,
+commercial roadmap, risks) is specified in
+[docs/policy-intelligence-design.md](policy-intelligence-design.md).

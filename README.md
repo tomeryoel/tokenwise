@@ -46,6 +46,18 @@ flowchart TB
 See [docs/architecture.md](docs/architecture.md) for details and
 [contracts/api-contracts.md](contracts/api-contracts.md) for the API shapes.
 
+## Policy Intelligence
+
+TokenWise **Policy Intelligence** separates a deterministic **Structured Policy Engine**
+(source of truth for enforcement) from a non-authoritative **Policy Evidence Retrieval**
+layer (RAG over policy documents, used for explanation and audit only). Today only a
+minimal structured form exists: `policy_mode` (`conservative`/`balanced`/`aggressive`) is a
+config enum that drives compression and tier selection. `POST /policy/query` is a
+placeholder (returns `{"policies": []}`) and is not wired into the flow — **Policy RAG is
+not implemented**. The product model (hierarchy, presets, Policy Center, effective-policy
+preview, document ingestion + approval, MVP scope, and commercial roadmap) is specified in
+[docs/policy-intelligence-design.md](docs/policy-intelligence-design.md).
+
 ## Repository layout
 
 ```
