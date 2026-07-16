@@ -97,6 +97,37 @@ services:
       - n8n
     restart: unless-stopped
 
+  # --- One-off offline Ragas evaluation runner (profile: evaluation) ----------
+  # NOT a persistent service. Only started on demand:
+  #   docker compose --profile evaluation run --rm evaluation-runner --mode smoke
+  #   docker compose --profile evaluation run --rm evaluation-runner --mode full
+  # The host-side Python CLI (evaluation/README.md) is the primary validated path.
+  evaluation-runner:
+    build:
+      context: .
+      dockerfile: evaluation/Dockerfile
+    profiles: ["evaluation"]
+    environment:
+      # Reach the other containers over the compose network + host Ollama.
+      - TOKENWISE_WEBHOOK_URL=http://n8n:5678/webhook/tokenwise
+      - TOKENWISE_N8N_HEALTH_URL=http://n8n:5678/healthz
+      - TOKENWISE_OPTIMIZER_HEALTH_URL=http://optimizer-service:8000/providers/health
+      - RAGAS_JUDGE_PROVIDER=ollama
+      - RAGAS_JUDGE_MODEL=llama3.1:latest
+      - RAGAS_OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - TOKENWISE_BASELINE_MODEL=llama3.1:latest
+      - RAGAS_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+      - RAGAS_REQUEST_TIMEOUT_SECONDS=180
+      - RAGAS_MAX_RETRIES=1
+    volumes:
+      # Persist experiment artifacts back to the host.
+      - ./evaluation/results:/app/evaluation/results
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - n8n
+      - optimizer-service
+
   # --- Langfuse placeholder (NOT enabled in the skeleton) ---------------------
   # Langfuse v3 needs Postgres + ClickHouse + Redis, which is too heavy for the
   # skeleton. It will be added on Day 9. Left here as documentation only.

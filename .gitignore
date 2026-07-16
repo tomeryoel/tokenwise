@@ -39,3 +39,11 @@ Thumbs.db
 .idea/
 .vscode/
 *.log
+
+# Evaluation (offline Ragas) — commit code + curated dataset only.
+# Ignore local experiment runs, env-check output, and model caches.
+evaluation/results/*
+!evaluation/results/.gitkeep
+evaluation/.hf_cache/
+evaluation/**/.ragas/
+evaluation/**/*.log
