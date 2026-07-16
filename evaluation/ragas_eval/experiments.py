@@ -173,6 +173,7 @@ class ExperimentRunner:
     async def _run_answer_quality(self, case: EvalCase, mode: str) -> dict[str, Any]:
         plan = _metric_plan(case, mode)
         # 1) generate both variants (bypass vs real pipeline)
+        print(f"  [gen] baseline {case.case_id}", flush=True)
         self.generator_calls += 1
         base_exec = self.baseline.generate(case.user_input)
         if base_exec.error:
@@ -180,6 +181,7 @@ class ExperimentRunner:
                                 "stage": "generation", "metric": None,
                                 "error_type": "baseline_generation", "error": base_exec.error,
                                 "retry": "no"})
+        print(f"  [gen] tokenwise {case.case_id}", flush=True)
         self.generator_calls += 1
         tw_exec = self.tokenwise.run(case.user_input, self.cfg.department, self.cfg.policy_mode)
         if tw_exec.error:
@@ -189,7 +191,9 @@ class ExperimentRunner:
                                 "retry": "no"})
 
         # 2) score each variant separately (never overwrite one with the other)
+        print(f"  [score] baseline {case.case_id} metrics={list(k for k,v in plan.items() if v)}", flush=True)
         base_scores = await self._score_variant(case, "baseline", base_exec.answer or "", plan)
+        print(f"  [score] tokenwise {case.case_id}", flush=True)
         tw_scores = await self._score_variant(case, "tokenwise", tw_exec.answer or "", plan)
 
         base_comp = composite_quality(self._values(base_scores), self.cfg.weights)
@@ -301,24 +305,30 @@ class ExperimentRunner:
         behavioral_cases = [c for c in cases if not c.is_answer_quality()]
 
         case_results: list[dict[str, Any]] = []
-        for case in answer_cases:
+        for i, case in enumerate(answer_cases, 1):
+            print(f"[case] ({i}/{len(answer_cases)}) answer_quality {case.case_id}", flush=True)
             try:
                 case_results.append(await self._run_answer_quality(case, mode))
+                print(f"[case] done answer_quality {case.case_id}", flush=True)
             except Exception as exc:  # noqa: BLE001
                 self.errors.append({"case_id": case.case_id, "variant": "both",
                                     "stage": "case", "metric": None,
                                     "error_type": "case_failure", "error": _short(exc),
                                     "retry": "no"})
+                print(f"[case] FAIL answer_quality {case.case_id}: {type(exc).__name__}", flush=True)
 
         behavioral_results: list[dict[str, Any]] = []
-        for case in behavioral_cases:
+        for i, case in enumerate(behavioral_cases, 1):
+            print(f"[case] ({i}/{len(behavioral_cases)}) behavioral {case.case_id}", flush=True)
             try:
                 behavioral_results.append(await self._run_behavioral(case))
+                print(f"[case] done behavioral {case.case_id}", flush=True)
             except Exception as exc:  # noqa: BLE001
                 self.errors.append({"case_id": case.case_id, "variant": "tokenwise",
                                     "stage": "behavioral", "metric": None,
                                     "error_type": "behavioral_failure", "error": _short(exc),
                                     "retry": "no"})
+                print(f"[case] FAIL behavioral {case.case_id}: {type(exc).__name__}", flush=True)
 
         # Record through the genuine Ragas experiment mechanism (tracking).
         ragas_experiment_name = await self._record_ragas_experiment(case_results, mode, meta)

@@ -10,6 +10,7 @@ Embeds : local HuggingFace ``all-MiniLM-L6-v2`` (CPU), no external API.
 """
 from __future__ import annotations
 
+import asyncio
 import importlib
 from typing import Any, Optional
 
@@ -139,6 +140,7 @@ class MetricEngine:
             base_url=self.cfg.openai_compat_base_url(),
             api_key="ollama",  # Ollama ignores the key; not a secret.
             max_retries=self.cfg.max_retries,
+            timeout=float(self.cfg.request_timeout_seconds),
         )
         self._llm = llm_factory(self.cfg.judge_model, provider="openai", client=client)
         return self._llm
@@ -187,46 +189,63 @@ class MetricEngine:
         return self._rubric
 
     # -- scoring (each returns a MetricScore; never raises) ------------------
+    async def _bounded(self, coro, metric: str, variant: str) -> MetricScore:
+        """Bound a metric call so a stuck local judge cannot hang the experiment."""
+        timeout = float(self.cfg.request_timeout_seconds)
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            return MetricScore(
+                metric, variant, status="error",
+                error=f"TimeoutError: metric exceeded {timeout}s",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return MetricScore(metric, variant, status="error", error=_err(exc))
+
     async def score_semantic(self, variant: str, reference: str, response: str) -> MetricScore:
         if not reference or not response:
             return MetricScore(M_SEMANTIC, variant, status="not_applicable",
                                reason="missing reference or response")
-        try:
+
+        async def _run() -> MetricScore:
             self.embedding_calls += 1
             res = await self.semantic().ascore(reference=reference, response=response)
             return _result_to_score(M_SEMANTIC, variant, res)
-        except Exception as exc:  # noqa: BLE001
-            return MetricScore(M_SEMANTIC, variant, status="error", error=_err(exc))
+
+        return await self._bounded(_run(), M_SEMANTIC, variant)
 
     async def score_relevancy(self, variant: str, user_input: str, response: str) -> MetricScore:
         if not user_input or not response:
             return MetricScore(M_RELEVANCY, variant, status="not_applicable",
                                reason="missing user_input or response")
-        try:
+
+        async def _run() -> MetricScore:
             self.judge_calls += 1
             self.embedding_calls += 1
             res = await self.relevancy().ascore(user_input=user_input, response=response)
             return _result_to_score(M_RELEVANCY, variant, res)
-        except Exception as exc:  # noqa: BLE001
-            return MetricScore(M_RELEVANCY, variant, status="error", error=_err(exc))
+
+        return await self._bounded(_run(), M_RELEVANCY, variant)
 
     async def score_factual(self, variant: str, reference: str, response: str) -> MetricScore:
         if not reference or not response:
             return MetricScore(M_FACTUAL, variant, status="not_applicable",
                                reason="missing reference or response")
-        try:
+
+        async def _run() -> MetricScore:
             self.judge_calls += 1
             res = await self.factual().ascore(response=response, reference=reference)
             return _result_to_score(M_FACTUAL, variant, res)
-        except Exception as exc:  # noqa: BLE001
-            return MetricScore(M_FACTUAL, variant, status="error", error=_err(exc))
+
+        return await self._bounded(_run(), M_FACTUAL, variant)
 
     async def score_rubric(self, variant: str, user_input: str, reference: str,
                             response: str) -> MetricScore:
         if not response:
             return MetricScore(M_RUBRIC, variant, status="not_applicable",
                                reason="missing response")
-        try:
+
+        async def _run() -> MetricScore:
             self.judge_calls += 1
             res = await self.rubric().ascore(
                 user_input=user_input,
@@ -240,8 +259,8 @@ class MetricEngine:
                 score.reason = _append_reason(score.reason, f"raw_1_5={raw}")
                 score.value = _clamp01((raw - 1.0) / (self.cfg.rubric_scale_max - 1.0))
             return score
-        except Exception as exc:  # noqa: BLE001
-            return MetricScore(M_RUBRIC, variant, status="error", error=_err(exc))
+
+        return await self._bounded(_run(), M_RUBRIC, variant)
 
 
 def _result_to_score(metric: str, variant: str, res: Any) -> MetricScore:
