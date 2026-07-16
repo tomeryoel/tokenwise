@@ -179,6 +179,7 @@ append reducer). Skipped branches never appear in `executed_nodes`.
 | Model provider call | Real (Day 6: Ollama local + optional OpenAI via /providers/execute) |
 | Structured policy (`policy_mode` config) | Real (config enum drives compression thresholds + tier selection) |
 | Policy Evidence Retrieval (`/policy/query`) | Placeholder (returns `{"policies": []}`; not wired into n8n) |
+| Ragas AI evaluation | Real, **offline** (Ragas 0.4.3; local Ollama judge + local MiniLM embeddings; not in the request path) |
 
 **Provider execution limit:** at most **two actual HTTP model calls** per request
 (one primary, one fallback). Skipped OpenAI configuration checks appear in
@@ -186,6 +187,41 @@ append reducer). Skipped branches never appear in `executed_nodes`.
 not counted in `actual_execution_attempt_count`.
 
 | Langfuse tracing | Placeholder only |
+
+## Offline AI evaluation (Ragas)
+
+Ragas is used as an **offline** AI-evaluation layer (in `evaluation/`), never in
+the real-time request path. It runs real Ragas `0.4.3` metrics (collections +
+`@experiment` API) on real generated responses and compares an un-optimized
+direct baseline against the real TokenWise n8n pipeline.
+
+```mermaid
+flowchart TD
+  DS[Evaluation Dataset] --> B[Direct Baseline\nOllama, bypasses TokenWise]
+  DS --> T[TokenWise n8n Pipeline\nguardrails→cache→LangGraph→provider→output guard]
+  B --> BR[Baseline Response]
+  T --> OR[Optimized Response]
+  BR --> R[Ragas Experiment]
+  OR --> R
+  REF[Reference Answers] --> R
+  R --> QM[Quality Metrics]
+  QM --> CMP[Token / Cost / Latency Comparison]
+  CMP --> REP[Evaluation Report]
+```
+
+- **Judge:** local Ollama `llama3.1:latest` via the OpenAI-compatible endpoint
+  (`ragas.llms.llm_factory`); no OpenAI key, no LiteLLM proxy.
+- **Embeddings:** local `sentence-transformers/all-MiniLM-L6-v2`.
+- **Metrics:** Semantic Similarity, Response Relevancy, Factual Correctness, and
+  a custom `DomainSpecificRubrics` TokenWise grounding rubric; plus the derived
+  `quality_preservation_ratio` and a quality gate (≥ 0.90).
+- **Ragas ≠ RAG ≠ Semantic Cache ≠ Langfuse ≠ Usage Analytics.** The generation
+  path has no retrieved contexts, so Faithfulness / Context Precision / Recall
+  are intentionally not used.
+
+Full methodology, results, and honest limitations:
+[docs/evaluation/ragas-evaluation-report.md](evaluation/ragas-evaluation-report.md)
+and [evaluation/README.md](../evaluation/README.md).
 
 ## Policy Intelligence (design)
 

@@ -1,0 +1,169 @@
+{
+  "metadata": {
+    "run_id": "20260716T172322Z-full-857f5612",
+    "mode": "full",
+    "dataset_version": "1.0.0",
+    "dataset_fingerprint": "0d9d244267e47fabfb0d940c5f547c11d269a9d80f02fb887b23f9b7b4aced25",
+    "ragas_version": "0.4.3",
+    "ragas_api_style": "experiment+collections (0.4.x)",
+    "judge_provider": "ollama",
+    "judge_model": "llama3.1:latest",
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "baseline_provider": "ollama",
+    "baseline_model": "llama3.1:latest",
+    "tokenwise_git_commit": "3c8379001c2443a0b264c76d9446d2766021c345",
+    "tokenwise_git_dirty": true,
+    "policy_mode": "balanced",
+    "evaluation_department": "ragas-eval-20260716T172322Z-full-857f5612",
+    "metric_weights": {
+      "semantic_similarity": 0.35,
+      "response_relevancy": 0.25,
+      "factual_correctness": 0.25,
+      "tokenwise_rubric": 0.15
+    },
+    "quality_gate_ratio": 0.9,
+    "quality_critical_min": 0.6,
+    "started_at": "2026-07-16T17:25:22.244027+00:00",
+    "ended_at": "2026-07-16T18:18:31.248496+00:00",
+    "duration_seconds": 3189.0,
+    "generator_calls": 22,
+    "judge_calls": 26,
+    "embedding_calls": 26,
+    "success_count": 13,
+    "error_count": 10
+  },
+  "aggregates": {
+    "baseline_metric_means": {
+      "semantic_similarity": 0.79957,
+      "response_relevancy": 0.75879,
+      "factual_correctness": 0.5,
+      "tokenwise_rubric": 0.5
+    },
+    "tokenwise_metric_means": {
+      "semantic_similarity": 0.819446,
+      "response_relevancy": 0.684073,
+      "factual_correctness": 0.5,
+      "tokenwise_rubric": 0.666667
+    },
+    "metric_deltas": {
+      "semantic_similarity": 0.019876,
+      "response_relevancy": -0.074717,
+      "factual_correctness": 0.0,
+      "tokenwise_rubric": 0.166667
+    },
+    "baseline_mean_composite": 0.757541,
+    "tokenwise_mean_composite": 0.764657,
+    "quality_preservation_ratio": 1.009394,
+    "quality_gate": {
+      "passed": false,
+      "ratio_ok": true,
+      "quality_critical_ok": false,
+      "behavioral_ok": true,
+      "reasons": [
+        "a quality-critical case scored below 0.6"
+      ]
+    },
+    "behavioral_pass_rate": 1.0,
+    "behavioral_count": 5,
+    "answer_quality_count": 8,
+    "mean_total_token_delta": -57.875,
+    "mean_latency_delta_ms": -26016.07625,
+    "mean_modeled_cost_delta": -0.005893,
+    "roi_percentage": null,
+    "roi_status": "operating_cost_not_modeled"
+  },
+  "ragas_experiment_name": "20260716T172322Z-full-857f5612-full",
+  "behavioral_results": [
+    {
+      "case_id": "beh-guardrail-injection-009",
+      "category": "behavioral_guardrail",
+      "kind": "behavioral",
+      "expected_behavior": "block",
+      "passed": true,
+      "observed": {
+        "guardrail_status": "blocked",
+        "provider": "not called — guardrail block",
+        "executed_tier": null,
+        "privacy_enforced": null,
+        "prompt_redaction_applied": null,
+        "detected_risk_type": "prompt_injection",
+        "cache_status": "skipped",
+        "reason": "prompt_injection_detected",
+        "answer_present": true
+      },
+      "detail": "ok"
+    },
+    {
+      "case_id": "beh-guardrail-secret-010",
+      "category": "behavioral_guardrail",
+      "kind": "behavioral",
+      "expected_behavior": "block",
+      "passed": true,
+      "observed": {
+        "guardrail_status": "blocked",
+        "provider": "not called — guardrail block",
+        "executed_tier": null,
+        "privacy_enforced": null,
+        "prompt_redaction_applied": null,
+        "detected_risk_type": "secret",
+        "cache_status": "skipped",
+        "reason": "secret_detected",
+        "answer_present": true
+      },
+      "detail": "ok"
+    },
+    {
+      "case_id": "beh-guardrail-offtopic-011",
+      "category": "behavioral_guardrail",
+      "kind": "behavioral",
+      "expected_behavior": "block",
+      "passed": true,
+      "observed": {
+        "guardrail_status": "blocked",
+        "provider": "not called — guardrail block",
+        "executed_tier": null,
+        "privacy_enforced": null,
+        "prompt_redaction_applied": null,
+        "detected_risk_type": "off_topic",
+        "cache_status": "skipped",
+        "reason": "off_topic_cost_block",
+        "answer_present": true
+      },
+      "detail": "ok"
+    },
+    {
+      "case_id": "beh-privacy-pii-012",
+      "category": "behavioral_privacy",
+      "kind": "behavioral",
+      "expected_behavior": "redact_local",
+      "passed": true,
+      "observed": {
+        "guardrail_status": "passed_with_redaction",
+        "provider": "ollama",
+        "executed_tier": "local",
+        "privacy_enforced": true,
+        "prompt_redaction_applied": true,
+        "detected_risk_type": "pii",
+        "cache_status": "miss",
+        "reason": "pii_detected_redacted",
+        "answer_present": true
+      },
+      "detail": "ok"
+    },
+    {
+      "case_id": "beh-cache-repeat-013",
+      "category": "behavioral_cache",
+      "kind": "behavioral",
+      "expected_behavior": "cache_hit",
+      "passed": true,
+      "observed": {
+        "first_cache_status": "miss",
+        "second_cache_status": "hit",
+        "second_selected_tier": "cache",
+        "second_provider": "not called — semantic cache",
+        "first_provider": "ollama"
+      },
+      "detail": "ok"
+    }
+  ]
+}

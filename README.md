@@ -228,14 +228,49 @@ cost is not yet modeled.
 
 Development reset (optional): `python -m usage.reset_db --force`
 
+## Offline AI evaluation (Ragas)
+
+TokenWise uses **[Ragas](https://docs.ragas.io) `0.4.3`** as an **offline**
+evaluation layer (lecturer requirement). It runs **real** Ragas metrics on
+**real** generated responses and saves reviewable artifacts. It is **not** in the
+real-time request path — Playground users never wait for Ragas.
+
+It compares an **un-optimized direct baseline** (Ollama, bypassing TokenWise)
+against the **real TokenWise n8n pipeline**, measuring whether TokenWise reduces
+modeled cost / tokens / unnecessary model calls while preserving answer quality.
+
+- Judge: local Ollama `llama3.1:latest` (via the OpenAI-compatible endpoint).
+- Embeddings: local `sentence-transformers/all-MiniLM-L6-v2`.
+- Metrics: Semantic Similarity, Response Relevancy, Factual Correctness, and a
+  custom TokenWise grounding rubric; plus the derived `quality_preservation_ratio`.
+- Ragas is **not** RAG, **not** the semantic cache, **not** Langfuse, and **not**
+  the usage dashboard.
+
+```powershell
+# from repo root, with the TokenWise stack up and Ollama running
+evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation --env-check
+evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation --mode smoke
+evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation --mode full
+```
+
+See [evaluation/README.md](evaluation/README.md) for setup and
+[docs/evaluation/ragas-evaluation-report.md](docs/evaluation/ragas-evaluation-report.md)
+for the canonical reviewed report.
+
 ## What is still mocked
 
-- Image analyser returns a fixed class; not wired into the flow yet.
+- Image analyser returns a fixed class; not wired into the flow yet
+  (Day 8 work is preserved in a Git stash and will be restored after Ragas).
 - Langfuse is a commented placeholder in docker-compose.
 - Prompt compression is recommended only (not executed).
+- Policy Intelligence runtime (Policy Center, Policy Evidence Retrieval,
+  inheritance) is **documentation only** — `POST /policy/query` remains a
+  placeholder returning `{"policies": []}`. See
+  [docs/policy-intelligence-design.md](docs/policy-intelligence-design.md).
 
 Real: guardrails (Day 3), semantic cache (Day 4), LangGraph optimizer (Day 5),
-Layer 4 provider execution (Day 6), usage DB + Dashboard (Day 7).
+Layer 4 provider execution (Day 6), usage DB + Dashboard (Day 7),
+offline Ragas evaluation (mandatory).
 
 ## Frontend without Docker (optional)
 
