@@ -1,0 +1,45 @@
+{
+  "version": "1.0.0",
+  "product": "TokenWise",
+  "implemented": [
+    "Input Guardrails (deterministic safety and cost rules)",
+    "Output Guardrails",
+    "Semantic Cache (sentence-transformers + Chroma, department-isolated)",
+    "LangGraph rule-based routing (not learned)",
+    "Task classification",
+    "Complexity scoring",
+    "Sensitivity evaluation",
+    "policy_mode structured configuration (conservative / balanced / aggressive)",
+    "Privacy / local-only enforcement for sensitive requests",
+    "Provider configuration and availability checks",
+    "Ollama provider execution",
+    "Optional OpenAI adapter when explicitly configured",
+    "Provider fallback (at most one fallback after primary)",
+    "Usage logging to SQLite",
+    "SQLite analytics for the Dashboard",
+    "Offline Ragas evaluation (not in the real-time path)"
+  ],
+  "partial_or_planned": [
+    "Policy Intelligence runtime (Structured Policy Engine + inheritance)",
+    "Policy Evidence Retrieval (POST /policy/query is currently a placeholder)",
+    "PyTorch Image Analyser (not yet wired into the live flow)",
+    "Langfuse tracing",
+    "Real prompt-compression execution (recommendation only today)",
+    "Cursor Connector",
+    "Cross-tool connectors",
+    "Model Fit",
+    "Cost-to-Success intelligence"
+  ],
+  "unsupported": [
+    "Real-time system-load routing",
+    "Device-spec-based routing",
+    "Automatic infrastructure scaling",
+    "Learned routing policies",
+    "Real-time provider reputation ranking",
+    "Automatic company-policy ingestion",
+    "Automatic policy-document enforcement / current Policy RAG",
+    "Current Cursor telemetry",
+    "Current employee use-case monitoring",
+    "Current cross-tool coding analytics"
+  ]
+}
