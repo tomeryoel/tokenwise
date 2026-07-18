@@ -5,6 +5,12 @@ Examples (host-side, from the repo root, using the isolated venv):
     evaluation/.venv/Scripts/python -m evaluation.ragas_eval.run_evaluation --mode smoke
     evaluation/.venv/Scripts/python -m evaluation.ragas_eval.run_evaluation --mode full
     evaluation/.venv/Scripts/python -m evaluation.ragas_eval.run_evaluation --env-check
+
+Targeted grounding remediation (one case, fast metrics only):
+
+    evaluation/.venv/Scripts/python -m evaluation.ragas_eval.run_evaluation ^
+      --case-id tw-architecture-001 ^
+      --metrics semantic_similarity,tokenwise_grounding_rubric
 """
 from __future__ import annotations
 
@@ -14,8 +20,8 @@ import sys
 from pathlib import Path
 
 from .config import EvalConfig, new_run_id, eval_department
-from .dataset import load_cases, filter_for_mode
-from .experiments import ExperimentRunner
+from .dataset import load_cases, filter_for_mode, filter_by_case_id, DatasetValidationError
+from .experiments import ExperimentRunner, parse_metric_filter
 from .metrics import assert_ragas_api, ragas_version
 from .reporting import write_artifacts
 
@@ -55,18 +61,49 @@ async def _env_check() -> int:
     return 0 if s.status == "ok" else 1
 
 
-async def _run(mode: str, skip_health: bool) -> int:
-    cfg = build_config(mode)
-    print(f"[run] mode={mode} run_id={cfg.run_id} dept={cfg.department}")
+async def _run(
+    mode: str,
+    skip_health: bool,
+    case_id: str | None = None,
+    metrics_raw: str | None = None,
+) -> int:
+    # Targeted single-case runs use mode label "targeted" in the run id.
+    run_mode = "targeted" if case_id else mode
+    cfg = build_config(run_mode)
+    # Keep EvalConfig.mode as smoke/full for metric defaults when not targeting;
+    # for targeted runs use "full" case flags then apply the metric filter.
+    plan_mode = mode if mode in ("smoke", "full") else "full"
+    if case_id:
+        plan_mode = "full"
+
+    print(f"[run] mode={run_mode} run_id={cfg.run_id} dept={cfg.department}")
     print(f"[run] ragas={ragas_version()} judge={cfg.judge_model} embeddings={cfg.embedding_model}")
+    if case_id:
+        print(f"[run] targeted case_id={case_id}")
+    if metrics_raw:
+        print(f"[run] metric_filter={metrics_raw}")
+
+    try:
+        metric_filter = parse_metric_filter(metrics_raw)
+    except ValueError as exc:
+        print(f"[run] ERROR: {exc}", file=sys.stderr)
+        return 2
 
     cases, meta = load_cases()
-    selected = filter_for_mode(cases, mode)
+    try:
+        if case_id:
+            selected = filter_by_case_id(cases, case_id)
+        else:
+            selected = filter_for_mode(cases, plan_mode)
+    except DatasetValidationError as exc:
+        print(f"[run] ERROR: {exc}", file=sys.stderr)
+        return 2
+
     answer_n = len([c for c in selected if c.is_answer_quality()])
     behavioral_n = len(selected) - answer_n
     print(f"[run] cases: {len(selected)} ({answer_n} answer-quality, {behavioral_n} behavioral)")
 
-    runner = ExperimentRunner(cfg)
+    runner = ExperimentRunner(cfg, metric_filter=metric_filter)
 
     if not skip_health:
         health = runner.health_check()
@@ -80,18 +117,25 @@ async def _run(mode: str, skip_health: bool) -> int:
     runner.warmup()
 
     print("[run] executing experiment (sequential; protects local judge)...")
-    result = await runner.run(selected, meta, mode)
+    result = await runner.run(selected, meta, plan_mode)
 
-    # snapshot the exact selected dataset (curated, safe to store)
     dataset_snapshot = {
         "dataset_version": meta.get("dataset_version"),
         "fingerprint": meta.get("fingerprint"),
-        "mode": mode,
+        "mode": run_mode,
+        "targeted": bool(case_id),
+        "case_id": case_id,
+        "metric_filter": sorted(metric_filter) if metric_filter else None,
         "selected_case_ids": [c.case_id for c in selected],
         "cases": [c.to_dict() for c in selected],
     }
+    public_cfg = cfg.to_public_dict()
+    public_cfg["targeted"] = bool(case_id)
+    public_cfg["case_id"] = case_id
+    public_cfg["metric_filter"] = sorted(metric_filter) if metric_filter else None
+
     run_dir = RESULTS_DIR / cfg.run_id
-    written = write_artifacts(run_dir, cfg.to_public_dict(), dataset_snapshot, result)
+    written = write_artifacts(run_dir, public_cfg, dataset_snapshot, result)
 
     agg = result["aggregates"]
     gate = agg.get("quality_gate", {})
@@ -115,11 +159,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--env-check", action="store_true",
                         help="Test A: validate env + run one real Ragas metric, then exit.")
     parser.add_argument("--skip-health", action="store_true")
+    parser.add_argument(
+        "--case-id",
+        default=None,
+        help="Run exactly one dataset case (targeted remediation). Rejects unknown ids.",
+    )
+    parser.add_argument(
+        "--metrics",
+        default=None,
+        help=(
+            "Comma-separated metric allow-list. Aliases: semantic_similarity, "
+            "response_relevancy, factual_correctness, tokenwise_rubric, "
+            "tokenwise_grounding_rubric."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.env_check:
         return asyncio.run(_env_check())
-    return asyncio.run(_run(args.mode, args.skip_health))
+    return asyncio.run(
+        _run(args.mode, args.skip_health, case_id=args.case_id, metrics_raw=args.metrics)
+    )
 
 
 if __name__ == "__main__":

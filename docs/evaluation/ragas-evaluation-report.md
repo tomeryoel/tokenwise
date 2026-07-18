@@ -120,3 +120,43 @@ The quality gate **did not pass**. TokenWise quality preservation is NOT claimed
 ## Evidence-based conclusion
 
 The measured results do NOT support a quality-preservation claim for this run. Failing metrics/cases and likely causes (e.g. local judge variance, small dataset, generator/judge overlap) are listed above; recommended next steps include prompt and routing tuning and a larger dataset.
+
+---
+
+## Follow-up: targeted grounding remediation (tw-architecture-001)
+
+The original full-run failure above remains the evidence that Ragas found a real defect: TokenWise product answers were ungrounded and invented unsupported capabilities (e.g. real-time / device-spec routing). That original report is **preserved** and is **not** rewritten as a pass.
+
+### Root cause
+
+Provider prompts branded the model as TokenWise but injected no product capability facts. Only the user prompt plus a generic system line was sent, so the LLM invented plausible features.
+
+### Remediation (runtime)
+
+- Source of truth: `services/optimizer-service/config/tokenwise_capabilities.json` (`implemented` / `partial_or_planned` / `unsupported`).
+- Deterministic detector + grounded system prompt: `services/optimizer-service/providers/grounding.py` (no extra LLM classification call).
+- Wired in `providers/executor.py`; n8n Provider Execute may pass compact `runtime_facts` (not a full Decision Receipt).
+
+### Targeted re-validation (not a full/smoke rerun)
+
+| Field | Value |
+|---|---|
+| Run | `20260718T202550Z-targeted-92c63ab8` |
+| Case | `tw-architecture-001` only |
+| Metrics | `semantic_similarity`, `tokenwise_grounding_rubric` only |
+| FactualCorrectness | **not run** |
+| Smoke / full dataset | **not run** |
+| Duration | 426.85s |
+| Generator calls | 2 |
+| Judge calls | 2 |
+
+| Metric | Baseline | TokenWise | Before (full run TokenWise) |
+|---|---|---|---|
+| Semantic Similarity | 0.5563 | **0.8927** | 0.8194 (full-run mean; case had timeouts on other metrics) |
+| Grounding Rubric (normalized) | 0.2500 | **0.7500** (raw 4/5) | **0.2500** (raw 2/5) |
+
+Judge reason after remediation: accurate decision-flow description (guardrails, semantic cache, LangGraph rule-based routing, policy_mode); minor omissions vs reference — **no unsupported capability claims**.
+
+### Targeted verdict
+
+**Targeted grounding remediation still failed** the recommended Grounding Rubric ≥ 0.80 bar (achieved 0.75). Unsupported claims were eliminated and Semantic Similarity was produced successfully. This does **not** mean the complete project quality gate now passes — full evaluation was not rerun.

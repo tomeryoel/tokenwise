@@ -49,3 +49,17 @@ def filter_for_mode(cases: list[EvalCase], mode: str) -> list[EvalCase]:
             selected = cases[:3]
         return selected
     return list(cases)
+
+
+def filter_by_case_id(cases: list[EvalCase], case_id: str) -> list[EvalCase]:
+    """Select exactly one case by id; raise if unknown."""
+    wanted = (case_id or "").strip()
+    if not wanted:
+        raise DatasetValidationError("case_id must be a non-empty string")
+    selected = [c for c in cases if c.case_id == wanted]
+    if not selected:
+        known = ", ".join(c.case_id for c in cases)
+        raise DatasetValidationError(
+            f"unknown case_id '{wanted}'. Known ids: {known}"
+        )
+    return selected

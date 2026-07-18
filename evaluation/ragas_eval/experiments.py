@@ -78,21 +78,56 @@ class ExperimentMetadata:
         return asdict(self)
 
 
-def _metric_plan(case: EvalCase, mode: str) -> dict[str, bool]:
-    """Which metrics to run for a case. Smoke mode trims slow judge metrics."""
+# CLI aliases for --metrics (grounding rubric has a friendly name).
+METRIC_ALIASES = {
+    "semantic_similarity": M_SEMANTIC,
+    "response_relevancy": M_RELEVANCY,
+    "factual_correctness": M_FACTUAL,
+    "tokenwise_rubric": M_RUBRIC,
+    "tokenwise_grounding_rubric": M_RUBRIC,
+}
+
+
+def parse_metric_filter(raw: str | None) -> set[str] | None:
+    """Parse a comma-separated metric filter into canonical metric names."""
+    if not raw:
+        return None
+    out: set[str] = set()
+    for part in raw.split(","):
+        key = part.strip().lower()
+        if not key:
+            continue
+        if key not in METRIC_ALIASES:
+            known = ", ".join(sorted(METRIC_ALIASES))
+            raise ValueError(f"unknown metric '{part.strip()}'. Known: {known}")
+        out.add(METRIC_ALIASES[key])
+    return out or None
+
+
+def _metric_plan(case: EvalCase, mode: str,
+                 metric_filter: set[str] | None = None) -> dict[str, bool]:
+    """Which metrics to run for a case. Smoke mode trims slow judge metrics.
+
+    ``metric_filter`` (optional) further restricts to an explicit allow-list —
+    used by targeted remediation runs (e.g. semantic + grounding rubric only).
+    """
     if mode == "smoke":
-        return {
+        plan = {
             M_SEMANTIC: case.run_semantic_similarity,
             M_RELEVANCY: False,
             M_FACTUAL: False,
             M_RUBRIC: case.run_custom_rubric and case.quality_critical,
         }
-    return {
-        M_SEMANTIC: case.run_semantic_similarity,
-        M_RELEVANCY: case.run_response_relevancy,
-        M_FACTUAL: case.run_factual_correctness,
-        M_RUBRIC: case.run_custom_rubric,
-    }
+    else:
+        plan = {
+            M_SEMANTIC: case.run_semantic_similarity,
+            M_RELEVANCY: case.run_response_relevancy,
+            M_FACTUAL: case.run_factual_correctness,
+            M_RUBRIC: case.run_custom_rubric,
+        }
+    if metric_filter is not None:
+        plan = {m: (enabled and m in metric_filter) for m, enabled in plan.items()}
+    return plan
 
 
 def _is_external(provider: Optional[str]) -> bool:
@@ -103,8 +138,9 @@ def _is_external(provider: Optional[str]) -> bool:
 
 
 class ExperimentRunner:
-    def __init__(self, cfg: EvalConfig):
+    def __init__(self, cfg: EvalConfig, metric_filter: set[str] | None = None):
         self.cfg = cfg
+        self.metric_filter = metric_filter
         self.baseline = BaselineClient(cfg)
         self.tokenwise = TokenWiseClient(cfg)
         self.engine = MetricEngine(cfg)
@@ -171,7 +207,7 @@ class ExperimentRunner:
         return {m: (s.value if s.status == "ok" else None) for m, s in scores.items()}
 
     async def _run_answer_quality(self, case: EvalCase, mode: str) -> dict[str, Any]:
-        plan = _metric_plan(case, mode)
+        plan = _metric_plan(case, mode, self.metric_filter)
         # 1) generate both variants (bypass vs real pipeline)
         print(f"  [gen] baseline {case.case_id}", flush=True)
         self.generator_calls += 1

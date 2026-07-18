@@ -125,7 +125,27 @@ evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation --mo
 
 # full (all 13 cases, all applicable metrics)
 evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation --mode full
+
+# targeted single-case remediation (example: grounding case only)
+evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation `
+  --case-id tw-architecture-001 `
+  --metrics semantic_similarity,tokenwise_grounding_rubric
 ```
+
+`--case-id` selects exactly one dataset case (unknown ids are rejected).
+`--metrics` is an optional allow-list; aliases include `tokenwise_grounding_rubric`.
+Targeted runs record `targeted=true` in artifacts and do **not** execute unrelated cases.
+
+### Product-answer grounding (runtime, not Ragas)
+
+Ragas originally penalized `tw-architecture-001` because TokenWise invented unsupported
+routing claims. Runtime fix (separate from this eval package):
+
+- Capability SoT: `services/optimizer-service/config/tokenwise_capabilities.json`
+- Detector + grounded system prompt: `providers/grounding.py` (deterministic; product
+  questions only — unrelated prompts unchanged)
+- Original failed full-run report is preserved in
+  `docs/evaluation/ragas-evaluation-report.md`; targeted re-validation does not replace it.
 
 Prerequisites: Ollama running with `llama3.1:latest` pulled, and the TokenWise
 stack up (`docker compose up -d`) so the n8n webhook + optimizer are reachable.
