@@ -1,6 +1,7 @@
 """Provider execution orchestrator - primary + one fallback attempt."""
 
 from providers.errors import ProviderErrorCode
+from providers.grounding import resolve_system_prompt
 from providers.registry import get_provider_instance, resolve_fallback, resolve_primary, _openai_model_for_tier
 from providers.schemas import ProviderAttempt, ProviderExecuteRequest, ProviderExecuteResponse
 
@@ -168,7 +169,8 @@ async def execute_provider(req: ProviderExecuteRequest) -> ProviderExecuteRespon
             actual_execution_attempt_count=_execution_count(attempts),
         )
 
-    result = await provider.execute(req.prompt, primary.model)
+    system_prompt, _grounded = resolve_system_prompt(req.prompt, req.runtime_facts)
+    result = await provider.execute(req.prompt, primary.model, system_prompt=system_prompt)
     attempts.append(_execution_attempt(
         primary.provider_name,
         primary.executed_tier,
@@ -265,7 +267,10 @@ async def execute_provider(req: ProviderExecuteRequest) -> ProviderExecuteRespon
             actual_execution_attempt_count=_execution_count(attempts),
         )
 
-    fb_result = await fb_provider.execute(req.prompt, fallback.model)
+    fb_system_prompt, _ = resolve_system_prompt(req.prompt, req.runtime_facts)
+    fb_result = await fb_provider.execute(
+        req.prompt, fallback.model, system_prompt=fb_system_prompt
+    )
     attempts.append(_execution_attempt(
         fallback.provider_name,
         fallback.executed_tier,

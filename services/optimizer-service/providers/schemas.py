@@ -26,6 +26,9 @@ class ProviderExecuteRequest(BaseModel):
     estimated_baseline_cost: float = 0.0
     estimated_optimized_cost: float = 0.0
     optimization_plan: OptimizationPlanInput = Field(default_factory=OptimizationPlanInput)
+    # Compact allow-listed request facts for TokenWise product grounding only.
+    # Never send a full Decision Receipt here.
+    runtime_facts: dict | None = None
 
 
 class ProviderAttempt(BaseModel):

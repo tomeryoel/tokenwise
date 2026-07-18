@@ -177,6 +177,7 @@ append reducer). Skipped branches never appear in `executed_nodes`.
 | Dashboard metrics | Real (Day 7: from GET /usage/summary) |
 | PyTorch image analysis | Mocked (static class) |
 | Model provider call | Real (Day 6: Ollama local + optional OpenAI via /providers/execute) |
+| TokenWise product-answer grounding | Real (capability SoT JSON + deterministic detector; product Q&A only) |
 | Structured policy (`policy_mode` config) | Real (config enum drives compression thresholds + tier selection) |
 | Policy Evidence Retrieval (`/policy/query`) | Placeholder (returns `{"policies": []}`; not wired into n8n) |
 | Ragas AI evaluation | Real, **offline** (Ragas 0.4.3; local Ollama judge + local MiniLM embeddings; not in the request path) |
