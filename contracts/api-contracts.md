@@ -139,14 +139,43 @@ runtime enforcement — hard routing/privacy/budget/provider decisions come from
 **Structured Policy Engine** (today: the `policy_mode` config). See
 [../docs/policy-intelligence-design.md](../docs/policy-intelligence-design.md).
 
-## image-analyser-service
+## image-analyser-service (Day 8: PyTorch ResNet18)
 
 ### POST /analyse
-Request: `{ "filename": "screenshot.png" }`  (real bytes later)
-Response (mock):
+Request (with image bytes):
 ```json
-{ "class": "unknown", "confidence": 0.0, "visual_complexity": 0.0, "needs_vision_model": false }
+{ "filename": "screenshot.png", "image_base64": "<base64-encoded bytes>" }
 ```
+Response:
+```json
+{
+  "class": "screenshot",
+  "confidence": 0.72,
+  "visual_complexity": 0.61,
+  "needs_vision_model": true,
+  "model": "resnet18",
+  "weights": "IMAGENET1K_V1",
+  "inference_ms": 42.5
+}
+```
+
+Coarse classes: `screenshot`, `diagram`, `chart`, `document_photo`. When
+`image_base64` is omitted the service returns the legacy stub
+(`class=unknown`, `visual_complexity=0.0`). Response also includes `model`
+(`resnet18`), `weights` (`IMAGENET1K_V1`), and `inference_ms`.
+
+Invalid / empty / corrupt / oversized (>5 MiB) payloads return HTTP 400 with
+`{"code":"INVALID_IMAGE","message":"..."}`.
+
+Image requests from the Playground send base64 in the n8n webhook body
+(in-memory only — never stored in browser persistent storage). n8n calls
+`image-analyser-service` when `has_image=true`, forwards
+`has_image` / `image_class` / `image_complexity` to the optimizer, skips
+semantic cache lookup, and returns a vision-tier receipt when
+`visual_complexity >= 0.5`.
+
+This is classification for routing, **not** OCR and **not** multimodal LLM
+captioning.
 
 ## optimizer-service (Day 5: real LangGraph Optimization Engine)
 

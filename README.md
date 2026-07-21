@@ -259,10 +259,10 @@ for the canonical reviewed report.
 
 ## What is still mocked
 
-- Image analyser returns a fixed class; not wired into the flow yet
-  (Day 8 work is preserved in a Git stash and will be restored after Ragas).
 - Langfuse is a commented placeholder in docker-compose.
 - Prompt compression is recommended only (not executed).
+- Vision-tier multimodal model execution (classification runs locally; provider
+  vision tier is not executed — TokenWise returns structured local analysis).
 - Policy Intelligence runtime (Policy Center, Policy Evidence Retrieval,
   inheritance) is **documentation only** — `POST /policy/query` remains a
   placeholder returning `{"policies": []}`. See
@@ -270,7 +270,8 @@ for the canonical reviewed report.
 
 Real: guardrails (Day 3), semantic cache (Day 4), LangGraph optimizer (Day 5),
 Layer 4 provider execution (Day 6), usage DB + Dashboard (Day 7),
-offline Ragas evaluation (mandatory).
+PyTorch image analyser + Playground upload (Day 8), offline Ragas evaluation,
+TokenWise product-answer grounding.
 
 ## Frontend without Docker (optional)
 

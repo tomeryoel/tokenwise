@@ -43,7 +43,7 @@ flowchart TB
     N8N --> GR
     N8N --> RAG
     N8N --> OPT
-    N8N -. "only when file attached (later)" .-> IMG
+    N8N -. "when has_image" .-> IMG
     OPT --> OLLAMA
     OPT -. "when configured" .-> OPENAI
     N8N -->|"answer + Decision Receipt"| UI
@@ -127,7 +127,7 @@ flowchart TB
 ```
 
 You can print the compiled graph as Mermaid at any time (uses LangGraph's built-in
-exporter, no extra libraries):
+drawer, no extra libraries):
 
 ```
 docker compose run --rm --no-deps optimizer-service \
@@ -175,7 +175,7 @@ append reducer). Skipped branches never appear in `executed_nodes`.
 | LangGraph optimizer decision | Real (Day 5: multi-node LangGraph, deterministic rules) |
 | Usage DB / ROI analytics | Real (Day 7: SQLite in optimizer-service, Dashboard via n8n webhook) |
 | Dashboard metrics | Real (Day 7: from GET /usage/summary) |
-| PyTorch image analysis | Mocked (static class) |
+| PyTorch image analysis | Real (Day 8: ResNet18 coarse classes + complexity; wired in n8n) |
 | Model provider call | Real (Day 6: Ollama local + optional OpenAI via /providers/execute) |
 | TokenWise product-answer grounding | Real (capability SoT JSON + deterministic detector; product Q&A only) |
 | Structured policy (`policy_mode` config) | Real (config enum drives compression thresholds + tier selection) |
@@ -243,3 +243,28 @@ and is not wired into the n8n flow — so **Policy RAG is not implemented**. The
 candidate-rule approval, LangGraph integration, Decision Receipt fields, MVP scope,
 commercial roadmap, risks) is specified in
 [docs/policy-intelligence-design.md](policy-intelligence-design.md).
+
+## Day 8 — PyTorch Image Analyser
+
+`image-analyser-service` runs **real CPU PyTorch inference** with torchvision
+`resnet18` (`IMAGENET1K_V1` weights). It maps ImageNet top-k labels into coarse
+TokenWise classes (`screenshot`, `diagram`, `chart`, `document_photo`) and a
+`visual_complexity` score used by LangGraph `vision_path` when complexity ≥ 0.5.
+
+- Endpoint: `POST /analyse` with optional `image_base64` (max 5 MiB decoded).
+- Model loads once per process; first startup may download pretrained weights.
+- This is **image classification**, not OCR and not multimodal LLM understanding.
+- Multimodal provider vision-tier execution is intentionally not implemented;
+  vision-path requests return structured local analysis in the Decision Receipt.
+
+n8n flow when `has_image=true`: Guardrails → Image Analyser → Optimizer (skips
+semantic cache) → vision or standard path → usage logging.
+
+### Deferred hardening (not Day 8)
+
+TokenWise product-QA answers may require either:
+
+- Semantic Cache bypass for product questions, or
+- capability-version-aware cache keys
+
+because stale cached product answers could predate capability-grounding updates.

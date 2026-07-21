@@ -192,11 +192,17 @@ See the limitations section of any generated `report.md` /
 `docs/evaluation/ragas-evaluation-report.md`. In short: small curated dataset;
 same local model may act as generator and judge (evaluator bias); local API cost
 is zero but infrastructure cost is not modeled; modeled costs are illustrative;
-OpenAI disabled; prompt compression, PyTorch image analysis, Policy Intelligence
-runtime, and Langfuse are not implemented yet. Results are an academic-MVP
-demonstration, not production-grade assurance.
+OpenAI disabled; prompt compression, Policy Intelligence runtime, and Langfuse
+are not implemented yet. PyTorch image analysis is implemented (Day 8). Results
+are an academic-MVP demonstration, not production-grade assurance.
+
+## Deferred hardening (product-QA cache)
+
+TokenWise product-QA answers may require either Semantic Cache bypass or
+capability-version-aware cache keys, because stale cached product answers could
+predate capability-grounding updates. Not implemented in Day 8.
 
 ## Next roadmap step
 
-After Ragas: restore and complete the PyTorch Image Analyser, then Langfuse
-tracing, then integration/benchmark, then the professional Figma UI.
+After Day 8 Image Analyser: Langfuse tracing, then integration/benchmark, then
+the professional Figma UI.
