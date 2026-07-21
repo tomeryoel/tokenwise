@@ -17,12 +17,12 @@
     "Provider fallback (at most one fallback after primary)",
     "Usage logging to SQLite",
     "SQLite analytics for the Dashboard",
-    "Offline Ragas evaluation (not in the real-time path)"
+    "Offline Ragas evaluation (not in the real-time path)",
+    "PyTorch Image Analyser (ResNet18 coarse classification + visual complexity; wired in n8n)"
   ],
   "partial_or_planned": [
     "Policy Intelligence runtime (Structured Policy Engine + inheritance)",
     "Policy Evidence Retrieval (POST /policy/query is currently a placeholder)",
-    "PyTorch Image Analyser (not yet wired into the live flow)",
     "Langfuse tracing",
     "Real prompt-compression execution (recommendation only today)",
     "Cursor Connector",
