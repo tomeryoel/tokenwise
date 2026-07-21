@@ -20,7 +20,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("playground");
   const [policyMode, setPolicyMode] = useState<PolicyMode>("balanced");
   const [playgroundSession, setPlaygroundSession] =
-    useState<PlaygroundSession>(initialPlaygroundSession);
+    useState<PlaygroundSession>(initialPlaygroundSession());
 
   return (
     <div className="app">

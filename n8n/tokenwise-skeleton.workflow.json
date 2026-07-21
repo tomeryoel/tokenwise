@@ -15,18 +15,24 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-320, 360],
+      "position": [
+        -320,
+        360
+      ],
       "webhookId": "tokenwise-skeleton"
     },
     {
       "parameters": {
-        "jsCode": "const body = $json.body || $json;\nreturn [{ json: {\n  request_id: 'r-' + Date.now(),\n  prompt: body.prompt || '',\n  policy_mode: body.policy_mode || 'balanced',\n  dept_id: body.dept_id || 'demo-support',\n  task_type: body.task_type || 'general'\n} }];"
+        "jsCode": "const body = $json.body || $json;\nconst hasImage = !!(body.has_image && body.image_base64);\nreturn [{ json: {\n  request_id: 'r-' + Date.now(),\n  prompt: body.prompt || '',\n  policy_mode: body.policy_mode || 'balanced',\n  dept_id: body.dept_id || 'demo-support',\n  task_type: body.task_type || 'general',\n  has_image: hasImage,\n  image_filename: body.image_filename || null,\n  image_base64: body.image_base64 || null\n} }];"
       },
       "id": "node-normalize",
       "name": "Normalize",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-120, 360]
+      "position": [
+        -120,
+        360
+      ]
     },
     {
       "parameters": {
@@ -41,7 +47,10 @@
       "name": "Guardrails",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [80, 360]
+      "position": [
+        80,
+        360
+      ]
     },
     {
       "parameters": {
@@ -71,7 +80,74 @@
       "name": "Guardrail Passed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [280, 360]
+      "position": [
+        280,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-has-image",
+              "leftValue": "={{ $('Normalize').item.json.has_image }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-if-image",
+      "name": "Has Image?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://image-analyser-service:8000/analyse",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filename: $('Normalize').item.json.image_filename, image_base64: $('Normalize').item.json.image_base64 }) }}",
+        "options": {}
+      },
+      "id": "node-image-analyser",
+      "name": "Image Analyser",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const norm = $('Normalize').item.json;\nconst guard = $('Guardrails').item.json;\n\nfunction safeItems(name) { try { return $items(name); } catch (e) { return []; } }\nlet cacheConf = 0;\nconst _cacheItems = safeItems('Cache Lookup');\nif (_cacheItems.length) { cacheConf = _cacheItems[0].json.confidence || 0; }\n\nlet hasImage = !!norm.has_image;\nlet imageClass = null;\nlet imageComplexity = 0;\nconst _imgItems = (typeof safeItems === 'function' ? safeItems : (function(name){ try { return $items(name); } catch (e) { return []; } }))('Image Analyser');\nif (_imgItems.length) {\n  const img = _imgItems[0].json;\n  imageClass = img.class;\n  imageComplexity = img.visual_complexity || 0;\n}\n\nreturn [{ json: {\n  request_id: norm.request_id,\n  prompt: guard.safe_text || norm.prompt,\n  policy_mode: norm.policy_mode,\n  guardrail_status: 'passed',\n  guardrail_reason: guard.reason || 'passed',\n  cache_status: hasImage ? 'skipped' : 'miss',\n  cache_confidence: cacheConf,\n  contains_sensitive_data: guard.contains_sensitive_data || false,\n  require_local_model: guard.require_local_model || false,\n  allow_external_model: guard.allow_external_model !== false,\n  estimated_tokens: guard.estimated_tokens || 0,\n  has_image: hasImage,\n  image_class: imageClass || '',\n  image_complexity: imageComplexity || 0\n} }];"
+      },
+      "id": "node-prepare-optimizer",
+      "name": "Prepare Optimizer Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        300
+      ]
     },
     {
       "parameters": {
@@ -86,7 +162,10 @@
       "name": "Cache Lookup",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [500, 240]
+      "position": [
+        500,
+        240
+      ]
     },
     {
       "parameters": {
@@ -116,7 +195,10 @@
       "name": "Cache Hit?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [700, 240]
+      "position": [
+        700,
+        240
+      ]
     },
     {
       "parameters": {
@@ -131,17 +213,23 @@
       "name": "Output Guardrails (cached)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [920, 120]
+      "position": [
+        920,
+        120
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const outGuard = $json;\nconst cache = $('Cache Lookup').item.json;\nconst guardrail = $('Guardrails').item.json;\nconst cachedAnswer = cache.answer;\n\nlet answer;\nlet outStatus;\nif (outGuard.pass === false) {\n  answer = 'The generated response was blocked by the output guardrail.';\n  outStatus = 'blocked';\n} else {\n  answer = (outGuard.redacted_text && outGuard.redacted_text !== cachedAnswer) ? outGuard.redacted_text : cachedAnswer;\n  outStatus = 'passed';\n}\n\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: 'passed',\n    output_guardrail_status: outStatus,\n    output_guardrail_issues: outGuard.issues || [],\n    cache_status: 'hit',\n    cache_confidence: cache.confidence,\n    cache_entry_id: cache.entry_id,\n    selected_tier: 'cache',\n    estimated_tokens: (cache.estimated_tokens != null ? cache.estimated_tokens : 0),\n    estimated_cost: 0,\n    optimization_reason: 'semantic_cache_hit',\n    cost_saved: (cache.cost_saved != null ? cache.cost_saved : 0),\n    detected_risk_type: guardrail.detected_risk_type || null,\n    reason: 'semantic_cache_hit',\n    savings_source: 'semantic_cache',\n    savings_reason: 'semantic_cache_hit',\n    provider: 'not called — semantic cache',\n    model: '-',\n    requested_tier: 'cache',\n    executed_tier: 'cache'\n  }\n} }];"
+        "jsCode": "function safeItems(name) { try { return $items(name); } catch (e) { return []; } }\nconst outGuard = $json;\nconst _cItems = safeItems('Cache Lookup');\nconst cache = _cItems.length ? _cItems[0].json : { confidence: 0, entry_id: null, answer: null, estimated_tokens: 0, cost_saved: 0 };\nconst guardrail = $('Guardrails').item.json;\nconst cachedAnswer = cache.answer;\n\nlet answer;\nlet outStatus;\nif (outGuard.pass === false) {\n  answer = 'The generated response was blocked by the output guardrail.';\n  outStatus = 'blocked';\n} else {\n  answer = (outGuard.redacted_text && outGuard.redacted_text !== cachedAnswer) ? outGuard.redacted_text : cachedAnswer;\n  outStatus = 'passed';\n}\n\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: 'passed',\n    output_guardrail_status: outStatus,\n    output_guardrail_issues: outGuard.issues || [],\n    cache_status: 'hit',\n    cache_confidence: cache.confidence,\n    cache_entry_id: cache.entry_id,\n    selected_tier: 'cache',\n    estimated_tokens: (cache.estimated_tokens != null ? cache.estimated_tokens : 0),\n    estimated_cost: 0,\n    optimization_reason: 'semantic_cache_hit',\n    cost_saved: (cache.cost_saved != null ? cache.cost_saved : 0),\n    detected_risk_type: guardrail.detected_risk_type || null,\n    reason: 'semantic_cache_hit',\n    savings_source: 'semantic_cache',\n    savings_reason: 'semantic_cache_hit',\n    provider: 'not called — semantic cache',\n    model: '-',\n    requested_tier: 'cache',\n    executed_tier: 'cache'\n  }\n} }];"
       },
       "id": "node-build-cached",
       "name": "Build Cached Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1140, 120]
+      "position": [
+        1140,
+        120
+      ]
     },
     {
       "parameters": {
@@ -149,14 +237,62 @@
         "url": "http://optimizer-service:8000/agent/run",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ request_id: $('Normalize').item.json.request_id, prompt: ($('Guardrails').item.json.safe_text || $('Normalize').item.json.prompt), policy_mode: $('Normalize').item.json.policy_mode, guardrail_status: 'passed', guardrail_reason: ($('Guardrails').item.json.reason || 'passed'), cache_status: 'miss', cache_confidence: ($('Cache Lookup').item.json.confidence || 0), contains_sensitive_data: ($('Guardrails').item.json.contains_sensitive_data || false), require_local_model: ($('Guardrails').item.json.require_local_model || false), allow_external_model: ($('Guardrails').item.json.allow_external_model !== false), estimated_tokens: ($('Guardrails').item.json.estimated_tokens || 0) }) }}",
+        "jsonBody": "={{ JSON.stringify($json) }}",
         "options": {}
       },
       "id": "node-optimizer",
       "name": "Optimizer",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [920, 380]
+      "position": [
+        920,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-vision",
+              "leftValue": "={{ $json.selected_tier }}",
+              "rightValue": "vision",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-vision-tier",
+      "name": "Vision Tier?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1020,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const opt = $('Optimizer').item.json;\nconst norm = $('Normalize').item.json;\nconst guard = $('Guardrails').item.json;\nlet img = { class: 'unknown', confidence: 0, visual_complexity: 0, needs_vision_model: false };\ntry {\n  const items = $items('Image Analyser');\n  if (items && items.length) img = items[0].json;\n} catch (e) {}\nconst userPrompt = (norm.prompt || '').trim();\nconst promptLine = userPrompt ? ('User prompt: ' + userPrompt + '\\n\\n') : '';\nconst answer = promptLine +\n  'TokenWise image analysis (PyTorch ResNet18):\\n' +\n  '- Class: ' + img.class + ' (confidence ' + img.confidence + ')\\n' +\n  '- Visual complexity: ' + img.visual_complexity + '\\n' +\n  '- Needs vision model: ' + img.needs_vision_model + '\\n' +\n  '- TokenWise routed this request to the vision tier.\\n' +\n  '- Multimodal model execution is not available in this MVP; classification ran locally in image-analyser-service.';\nconst inStatus = guard.requires_redaction ? 'passed_with_redaction' : 'passed';\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: inStatus,\n    output_guardrail_status: 'skipped',\n    output_guardrail_issues: [],\n    cache_status: 'skipped',\n    cache_confidence: 0,\n    cache_entry_id: null,\n    selected_tier: 'vision',\n    estimated_tokens: opt.estimated_tokens,\n    estimated_cost: opt.estimated_cost,\n    optimization_reason: opt.optimization_reason,\n    cost_saved: opt.cost_saved,\n    detected_risk_type: guard.detected_risk_type || null,\n    reason: guard.reason || 'passed',\n    savings_source: 'image_analysis',\n    savings_reason: 'pytorch_classification_routed_to_vision',\n    task_type: opt.task_type,\n    complexity_score: opt.complexity_score,\n    complexity_level: opt.complexity_level,\n    compression_recommended: opt.compression_recommended,\n    compression_target_ratio: opt.compression_target_ratio,\n    compression_reason: opt.compression_reason,\n    compression_risk: opt.compression_risk,\n    fallback_tier: opt.fallback_tier,\n    estimated_baseline_cost: opt.estimated_baseline_cost,\n    estimated_optimized_cost: opt.estimated_optimized_cost,\n    decision_reasons: opt.decision_reasons || [],\n    graph_path: opt.graph_path,\n    branch_reason: opt.branch_reason,\n    executed_nodes: opt.executed_nodes || [],\n    provider: 'image-analyser-service',\n    model: 'resnet18',\n    requested_tier: 'vision',\n    executed_tier: 'vision',\n    has_image: true,\n    image_class: img.class,\n    image_filename: norm.image_filename,\n    image_confidence: img.confidence,\n    visual_complexity: img.visual_complexity,\n    needs_vision_model: img.needs_vision_model\n  }\n} }];"
+      },
+      "id": "node-build-vision",
+      "name": "Build Vision Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1220,
+        180
+      ]
     },
     {
       "parameters": {
@@ -171,7 +307,10 @@
       "name": "Provider Execute",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1120, 380]
+      "position": [
+        1120,
+        380
+      ]
     },
     {
       "parameters": {
@@ -201,7 +340,10 @@
       "name": "Provider Success?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1320, 380]
+      "position": [
+        1320,
+        380
+      ]
     },
     {
       "parameters": {
@@ -211,7 +353,10 @@
       "name": "Build Provider Error",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1520, 500]
+      "position": [
+        1520,
+        500
+      ]
     },
     {
       "parameters": {
@@ -226,7 +371,10 @@
       "name": "Guardrails Output",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1320, 380]
+      "position": [
+        1320,
+        380
+      ]
     },
     {
       "parameters": {
@@ -241,18 +389,24 @@
       "name": "Cache Store",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1520, 380],
+      "position": [
+        1520,
+        380
+      ],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "const outGuard = $('Guardrails Output').item.json;\nconst optimizer = $('Optimizer').item.json;\nconst guardrail = $('Guardrails').item.json;\nconst cache = $('Cache Lookup').item.json;\nconst provider = $('Provider Execute').item.json;\nconst modelAnswer = provider.answer;\n\nlet answer;\nlet outStatus;\nif (outGuard.pass === false) {\n  answer = 'The generated response was blocked by the output guardrail.';\n  outStatus = 'blocked';\n} else {\n  answer = (outGuard.redacted_text && outGuard.redacted_text !== modelAnswer) ? outGuard.redacted_text : modelAnswer;\n  outStatus = 'passed';\n}\n\nconst inStatus = guardrail.requires_redaction ? 'passed_with_redaction' : 'passed';\nconst savingsReason = provider.used_fallback ? 'provider_fallback' : 'cheaper_model_selected';\n\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: inStatus,\n    output_guardrail_status: outStatus,\n    output_guardrail_issues: outGuard.issues || [],\n    cache_status: 'miss',\n    cache_confidence: (cache.confidence != null ? cache.confidence : 0),\n    cache_entry_id: null,\n    selected_tier: optimizer.selected_tier,\n    estimated_tokens: optimizer.estimated_tokens,\n    estimated_cost: optimizer.estimated_cost,\n    optimization_reason: optimizer.optimization_reason,\n    cost_saved: optimizer.cost_saved,\n    detected_risk_type: guardrail.detected_risk_type || null,\n    reason: guardrail.reason || 'passed',\n    savings_source: 'model_routing',\n    savings_reason: savingsReason,\n    task_type: optimizer.task_type,\n    complexity_score: optimizer.complexity_score,\n    complexity_level: optimizer.complexity_level,\n    compression_recommended: optimizer.compression_recommended,\n    compression_target_ratio: optimizer.compression_target_ratio,\n    compression_reason: optimizer.compression_reason,\n    compression_risk: optimizer.compression_risk,\n    fallback_tier: optimizer.fallback_tier,\n    estimated_baseline_cost: optimizer.estimated_baseline_cost,\n    estimated_optimized_cost: optimizer.estimated_optimized_cost,\n    decision_reasons: optimizer.decision_reasons || [],\n    graph_path: optimizer.graph_path,\n    branch_reason: optimizer.branch_reason,\n    executed_nodes: optimizer.executed_nodes || [],\n    provider: provider.provider,\n    model: provider.model,\n    requested_tier: provider.requested_tier,\n    executed_tier: provider.executed_tier,\n    actual_input_tokens: provider.actual_input_tokens,\n    actual_output_tokens: provider.actual_output_tokens,\n    actual_total_tokens: provider.actual_total_tokens,\n    actual_cost: provider.actual_cost,\n    actual_cost_saved: provider.actual_cost_saved,\n    latency_ms: provider.latency_ms,\n    used_fallback: provider.used_fallback,\n    fallback_reason: provider.fallback_reason,\n    privacy_enforced: provider.privacy_enforced,\n    cost_calculation_status: provider.cost_calculation_status,\n    actual_execution_attempt_count: provider.actual_execution_attempt_count,\n    prompt_redaction_applied: provider.prompt_redaction_applied || guardrail.requires_redaction || false,\n    provider_attempts: (provider.attempts || []).map(a => a.provider + '/' + a.tier + ' ' + (a.attempt_role || 'primary') + (a.executed ? ' executed' : ' skipped') + (a.success ? ' ok' : ' fail:' + (a.error_code || '')))\n  }\n} }];"
+        "jsCode": "function safeItems(name) { try { return $items(name); } catch (e) { return []; } }\nconst outGuard = $('Guardrails Output').item.json;\nconst optimizer = $('Optimizer').item.json;\nconst guardrail = $('Guardrails').item.json;\nconst _cItems = safeItems('Cache Lookup');\nconst cache = _cItems.length ? _cItems[0].json : { confidence: 0, entry_id: null, answer: null, estimated_tokens: 0, cost_saved: 0 };\nconst provider = $('Provider Execute').item.json;\nconst modelAnswer = provider.answer;\n\nlet answer;\nlet outStatus;\nif (outGuard.pass === false) {\n  answer = 'The generated response was blocked by the output guardrail.';\n  outStatus = 'blocked';\n} else {\n  answer = (outGuard.redacted_text && outGuard.redacted_text !== modelAnswer) ? outGuard.redacted_text : modelAnswer;\n  outStatus = 'passed';\n}\n\nconst inStatus = guardrail.requires_redaction ? 'passed_with_redaction' : 'passed';\nconst savingsReason = provider.used_fallback ? 'provider_fallback' : 'cheaper_model_selected';\n\nreturn [{ json: {\n  answer: answer,\n  receipt: {\n    guardrail_status: inStatus,\n    output_guardrail_status: outStatus,\n    output_guardrail_issues: outGuard.issues || [],\n    cache_status: 'miss',\n    cache_confidence: (cache.confidence != null ? cache.confidence : 0),\n    cache_entry_id: null,\n    selected_tier: optimizer.selected_tier,\n    estimated_tokens: optimizer.estimated_tokens,\n    estimated_cost: optimizer.estimated_cost,\n    optimization_reason: optimizer.optimization_reason,\n    cost_saved: optimizer.cost_saved,\n    detected_risk_type: guardrail.detected_risk_type || null,\n    reason: guardrail.reason || 'passed',\n    savings_source: 'model_routing',\n    savings_reason: savingsReason,\n    task_type: optimizer.task_type,\n    complexity_score: optimizer.complexity_score,\n    complexity_level: optimizer.complexity_level,\n    compression_recommended: optimizer.compression_recommended,\n    compression_target_ratio: optimizer.compression_target_ratio,\n    compression_reason: optimizer.compression_reason,\n    compression_risk: optimizer.compression_risk,\n    fallback_tier: optimizer.fallback_tier,\n    estimated_baseline_cost: optimizer.estimated_baseline_cost,\n    estimated_optimized_cost: optimizer.estimated_optimized_cost,\n    decision_reasons: optimizer.decision_reasons || [],\n    graph_path: optimizer.graph_path,\n    branch_reason: optimizer.branch_reason,\n    executed_nodes: optimizer.executed_nodes || [],\n    provider: provider.provider,\n    model: provider.model,\n    requested_tier: provider.requested_tier,\n    executed_tier: provider.executed_tier,\n    actual_input_tokens: provider.actual_input_tokens,\n    actual_output_tokens: provider.actual_output_tokens,\n    actual_total_tokens: provider.actual_total_tokens,\n    actual_cost: provider.actual_cost,\n    actual_cost_saved: provider.actual_cost_saved,\n    latency_ms: provider.latency_ms,\n    used_fallback: provider.used_fallback,\n    fallback_reason: provider.fallback_reason,\n    privacy_enforced: provider.privacy_enforced,\n    cost_calculation_status: provider.cost_calculation_status,\n    actual_execution_attempt_count: provider.actual_execution_attempt_count,\n    prompt_redaction_applied: provider.prompt_redaction_applied || guardrail.requires_redaction || false,\n    provider_attempts: (provider.attempts || []).map(a => a.provider + '/' + a.tier + ' ' + (a.attempt_role || 'primary') + (a.executed ? ' executed' : ' skipped') + (a.success ? ' ok' : ' fail:' + (a.error_code || '')))\n  }\n} }];"
       },
       "id": "node-build",
       "name": "Build Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1720, 380]
+      "position": [
+        1720,
+        380
+      ]
     },
     {
       "parameters": {
@@ -262,7 +416,10 @@
       "name": "Build Blocked",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [500, 500]
+      "position": [
+        500,
+        500
+      ]
     },
     {
       "parameters": {
@@ -272,7 +429,10 @@
       "name": "Prepare Usage Log",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1920, 360]
+      "position": [
+        1920,
+        360
+      ]
     },
     {
       "parameters": {
@@ -287,7 +447,10 @@
       "name": "Usage Log",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2120, 360],
+      "position": [
+        2120,
+        360
+      ],
       "onError": "continueRegularOutput"
     },
     {
@@ -298,7 +461,10 @@
       "name": "Pass Through Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2320, 360]
+      "position": [
+        2320,
+        360
+      ]
     },
     {
       "parameters": {
@@ -307,7 +473,10 @@
         "options": {
           "responseHeaders": {
             "entries": [
-              { "name": "Access-Control-Allow-Origin", "value": "*" }
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
             ]
           }
         }
@@ -316,46 +485,316 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [2520, 360]
+      "position": [
+        2520,
+        360
+      ]
     }
   ],
   "connections": {
-    "Webhook": { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
-    "Normalize": { "main": [[{ "node": "Guardrails", "type": "main", "index": 0 }]] },
-    "Guardrails": { "main": [[{ "node": "Guardrail Passed?", "type": "main", "index": 0 }]] },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize": {
+      "main": [
+        [
+          {
+            "node": "Guardrails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardrails": {
+      "main": [
+        [
+          {
+            "node": "Guardrail Passed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Guardrail Passed?": {
       "main": [
-        [{ "node": "Cache Lookup", "type": "main", "index": 0 }],
-        [{ "node": "Build Blocked", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Has Image?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Cache Lookup": { "main": [[{ "node": "Cache Hit?", "type": "main", "index": 0 }]] },
+    "Has Image?": {
+      "main": [
+        [
+          {
+            "node": "Image Analyser",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cache Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Analyser": {
+      "main": [
+        [
+          {
+            "node": "Prepare Optimizer Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cache Lookup": {
+      "main": [
+        [
+          {
+            "node": "Cache Hit?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Cache Hit?": {
       "main": [
-        [{ "node": "Output Guardrails (cached)", "type": "main", "index": 0 }],
-        [{ "node": "Optimizer", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Output Guardrails (cached)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Optimizer Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Output Guardrails (cached)": { "main": [[{ "node": "Build Cached Response", "type": "main", "index": 0 }]] },
-    "Build Cached Response": { "main": [[{ "node": "Prepare Usage Log", "type": "main", "index": 0 }]] },
-    "Optimizer": { "main": [[{ "node": "Provider Execute", "type": "main", "index": 0 }]] },
-    "Provider Execute": { "main": [[{ "node": "Provider Success?", "type": "main", "index": 0 }]] },
+    "Prepare Optimizer Request": {
+      "main": [
+        [
+          {
+            "node": "Optimizer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Output Guardrails (cached)": {
+      "main": [
+        [
+          {
+            "node": "Build Cached Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Cached Response": {
+      "main": [
+        [
+          {
+            "node": "Prepare Usage Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Optimizer": {
+      "main": [
+        [
+          {
+            "node": "Vision Tier?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vision Tier?": {
+      "main": [
+        [
+          {
+            "node": "Build Vision Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Provider Execute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Vision Response": {
+      "main": [
+        [
+          {
+            "node": "Prepare Usage Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Provider Execute": {
+      "main": [
+        [
+          {
+            "node": "Provider Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Provider Success?": {
       "main": [
-        [{ "node": "Guardrails Output", "type": "main", "index": 0 }],
-        [{ "node": "Build Provider Error", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Guardrails Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Provider Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Guardrails Output": { "main": [[{ "node": "Cache Store", "type": "main", "index": 0 }]] },
-    "Cache Store": { "main": [[{ "node": "Build Response", "type": "main", "index": 0 }]] },
-    "Build Response": { "main": [[{ "node": "Prepare Usage Log", "type": "main", "index": 0 }]] },
-    "Build Provider Error": { "main": [[{ "node": "Prepare Usage Log", "type": "main", "index": 0 }]] },
-    "Build Blocked": { "main": [[{ "node": "Prepare Usage Log", "type": "main", "index": 0 }]] },
-    "Prepare Usage Log": { "main": [[{ "node": "Usage Log", "type": "main", "index": 0 }]] },
-    "Usage Log": { "main": [[{ "node": "Pass Through Response", "type": "main", "index": 0 }]] },
-    "Pass Through Response": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+    "Guardrails Output": {
+      "main": [
+        [
+          {
+            "node": "Cache Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cache Store": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Prepare Usage Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Provider Error": {
+      "main": [
+        [
+          {
+            "node": "Prepare Usage Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Blocked": {
+      "main": [
+        [
+          {
+            "node": "Prepare Usage Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Usage Log": {
+      "main": [
+        [
+          {
+            "node": "Usage Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Usage Log": {
+      "main": [
+        [
+          {
+            "node": "Pass Through Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pass Through Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": false,
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "pinData": {}
 }

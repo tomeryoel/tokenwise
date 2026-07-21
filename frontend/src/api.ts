@@ -40,15 +40,36 @@ export interface UsageSummary {
  * we return a clearly-labelled local mock so the UI is still demonstrable.
  * Remove the fallback once the n8n workflow is reliably running.
  */
+async function fileToBase64(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 export async function runPrompt(
   prompt: string,
   policyMode: PolicyMode,
+  attachment?: File | null,
 ): Promise<RunResponse> {
+  const payload: Record<string, unknown> = {
+    prompt,
+    policy_mode: policyMode,
+  };
+  if (attachment) {
+    payload.has_image = true;
+    payload.image_filename = attachment.name;
+    payload.image_base64 = await fileToBase64(attachment);
+  }
+
   try {
     const res = await fetch(WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, policy_mode: policyMode }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error(`n8n returned ${res.status}`);
     const data = await res.json();

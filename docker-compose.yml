@@ -82,6 +82,7 @@ services:
     depends_on:
       - guardrails-service
       - rag-cache-service
+      - image-analyser-service
       - optimizer-service
     restart: unless-stopped
 

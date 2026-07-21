@@ -46,6 +46,12 @@ export interface DecisionReceipt {
   actual_execution_attempt_count?: number | null;
   prompt_redaction_applied?: boolean | null;
   provider_attempts?: string[] | null;
+  has_image?: boolean | null;
+  image_class?: string | null;
+  image_filename?: string | null;
+  image_confidence?: number | null;
+  visual_complexity?: number | null;
+  needs_vision_model?: boolean | null;
 }
 
 export interface RunResponse {

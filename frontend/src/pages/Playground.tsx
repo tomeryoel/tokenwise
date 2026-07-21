@@ -23,12 +23,12 @@ export default function Playground({
   async function handleSubmit(e?: FormEvent) {
     e?.preventDefault();
     if (loading) return;
-    if (!prompt.trim()) return;
+    if (!prompt.trim() && !attachment) return;
 
     setSession((s) => ({ ...s, loading: true, error: null }));
 
     try {
-      const res = await runPrompt(prompt, policyMode);
+      const res = await runPrompt(prompt, policyMode, attachment);
       if (res.usedMock) {
         setSession((s) => ({
           ...s,
@@ -86,11 +86,13 @@ export default function Playground({
         />
 
         <div className="row">
-          <label className="field-label">Attachment (placeholder)</label>
+          <label className="field-label" htmlFor="playground-attachment">
+            Image attachment
+          </label>
           <input
+            id="playground-attachment"
             type="file"
-            disabled
-            title="Coming later (image analyser)"
+            accept="image/*"
             onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
           />
         </div>
@@ -210,6 +212,24 @@ export default function Playground({
                 label="output_guardrail_issues"
                 value={list(result.receipt?.output_guardrail_issues)}
                 wide
+              />
+              <Receipt label="has_image" value={val(result.receipt?.has_image)} />
+              <Receipt label="image_class" value={val(result.receipt?.image_class)} />
+              <Receipt
+                label="image_filename"
+                value={val(result.receipt?.image_filename)}
+              />
+              <Receipt
+                label="image_confidence"
+                value={val(result.receipt?.image_confidence)}
+              />
+              <Receipt
+                label="visual_complexity"
+                value={val(result.receipt?.visual_complexity)}
+              />
+              <Receipt
+                label="needs_vision_model"
+                value={val(result.receipt?.needs_vision_model)}
               />
               <Receipt label="graph_path" value={val(result.receipt?.graph_path)} />
               <Receipt label="branch_reason" value={val(result.receipt?.branch_reason)} wide />
