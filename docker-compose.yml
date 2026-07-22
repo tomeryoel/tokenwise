@@ -91,9 +91,9 @@ services:
     ports:
       - "5173:5173"
     environment:
-      # Browser talks to n8n on the host; empty/failed -> UI falls back to mock.
-      - VITE_N8N_WEBHOOK_URL=http://localhost:5679/webhook/tokenwise
-      - VITE_USAGE_SUMMARY_URL=http://localhost:5679/webhook/tokenwise-usage-summary
+      # Browser calls the same-origin Vite proxy, which forwards /api requests to n8n.
+      - VITE_N8N_WEBHOOK_URL=/api/webhook/tokenwise
+      - VITE_USAGE_SUMMARY_URL=/api/webhook/tokenwise-usage-summary
     depends_on:
       - n8n
     restart: unless-stopped

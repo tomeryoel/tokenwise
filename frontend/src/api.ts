@@ -2,11 +2,11 @@ import type { PolicyMode, RunResponse } from "./types";
 
 const WEBHOOK_URL =
   import.meta.env.VITE_N8N_WEBHOOK_URL ??
-  "http://localhost:5678/webhook/tokenwise";
+  "/api/webhook/tokenwise";
 
 const USAGE_SUMMARY_URL =
   import.meta.env.VITE_USAGE_SUMMARY_URL ??
-  "http://localhost:5679/webhook/tokenwise-usage-summary";
+  "/api/webhook/tokenwise-usage-summary";
 
 export interface UsageSummary {
   period_days: number;
@@ -55,32 +55,33 @@ export async function runPrompt(
   policyMode: PolicyMode,
   attachment?: File | null,
 ): Promise<RunResponse> {
-  const payload: Record<string, unknown> = {
+  const requestPayload: Record<string, unknown> = {
     prompt,
     policy_mode: policyMode,
   };
   if (attachment) {
-    payload.has_image = true;
-    payload.image_filename = attachment.name;
-    payload.image_base64 = await fileToBase64(attachment);
+    requestPayload.has_image = true;
+    requestPayload.image_filename = attachment.name;
+    requestPayload.image_base64 = await fileToBase64(attachment);
   }
 
   try {
     const res = await fetch(WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(requestPayload),
     });
     if (!res.ok) throw new Error(`n8n returned ${res.status}`);
     const data = await res.json();
     // n8n may wrap the payload in an array; normalise both shapes.
-    const payload = Array.isArray(data) ? data[0] : data;
+    const responsePayload = Array.isArray(data) ? data[0] : data;
     return {
-      answer: payload.answer ?? "(no answer field returned)",
-      receipt: payload.receipt,
+      answer: responsePayload.answer ?? "(no answer field returned)",
+      receipt: responsePayload.receipt,
       usedMock: false,
     };
-  } catch {
+  } catch (error) {
+    console.error("TokenWise request failed; using frontend mock.", error);
     return temporaryMock(prompt, policyMode);
   }
 }
