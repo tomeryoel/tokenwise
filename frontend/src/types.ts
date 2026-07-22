@@ -60,6 +60,4 @@ export interface DecisionReceipt {
 export interface RunResponse {
   answer: string;
   receipt: DecisionReceipt;
-  /** True when the answer came from the temporary local mock, not n8n. */
-  usedMock: boolean;
 }

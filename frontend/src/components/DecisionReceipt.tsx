@@ -6,7 +6,6 @@ import type {
 interface Props {
   receipt: DecisionReceiptData;
   policyMode: PolicyMode;
-  usedMock: boolean;
 }
 
 type Tone = "positive" | "warning" | "danger" | "info" | "neutral";
@@ -21,7 +20,6 @@ interface Fact {
 export default function DecisionReceipt({
   receipt,
   policyMode,
-  usedMock,
 }: Props) {
   const activePolicy = receipt.policy_mode ?? policyMode;
   const tokens = receipt.actual_total_tokens ?? receipt.estimated_tokens;
@@ -100,8 +98,8 @@ export default function DecisionReceipt({
       <div className="decision-hero">
         <div>
           <div className="receipt-eyebrow">
-            <span className={`status-dot ${usedMock ? "warning" : "positive"}`} />
-            {usedMock ? "Temporary fallback result" : "Live TokenWise decision"}
+            <span className="status-dot positive" />
+            Live TokenWise decision
           </div>
           <h3 id="decision-receipt-title">Decision summary</h3>
           <p className="decision-summary">{summary}</p>
@@ -170,7 +168,7 @@ export default function DecisionReceipt({
           description={`${safetyStatus.label}; cache ${humanize(cacheStatus)}`}
           facts={[...safetyFacts, ...imageFacts]}
         />
-        <TechnicalTrace receipt={receipt} usedMock={usedMock} />
+        <TechnicalTrace receipt={receipt} />
       </div>
     </section>
   );
@@ -232,13 +230,7 @@ function ReceiptSection({
   );
 }
 
-function TechnicalTrace({
-  receipt,
-  usedMock,
-}: {
-  receipt: DecisionReceiptData;
-  usedMock: boolean;
-}) {
+function TechnicalTrace({ receipt }: { receipt: DecisionReceiptData }) {
   const lists = [
     { label: "Provider attempts", items: receipt.provider_attempts?.map(humanizeTechnical) },
     { label: "Executed graph nodes", items: receipt.executed_nodes?.map(humanizeTechnical) },
@@ -250,12 +242,12 @@ function TechnicalTrace({
       <summary>
         <span>
           <strong>Technical trace</strong>
-          <small>{usedMock ? "Frontend fallback" : "Live n8n pipeline"}</small>
+          <small>Live n8n pipeline</small>
         </span>
         <span className="section-action">View diagnostics</span>
       </summary>
       <div className="trace-source">
-        Response source: {usedMock ? "temporary frontend fallback" : "n8n orchestration webhook"}
+        Response source: n8n orchestration webhook
       </div>
       {lists.map((group) => (
         <div className="trace-group" key={group.label}>

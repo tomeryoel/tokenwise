@@ -30,21 +30,12 @@ export default function Playground({
 
     try {
       const res = await runPrompt(prompt, policyMode, attachment);
-      if (res.usedMock) {
-        setSession((s) => ({
-          ...s,
-          loading: false,
-          error: "n8n webhook unavailable — showing frontend mock fallback",
-          result: s.result ?? res,
-        }));
-      } else {
-        setSession((s) => ({
-          ...s,
-          loading: false,
-          error: null,
-          result: res,
-        }));
-      }
+      setSession((s) => ({
+        ...s,
+        loading: false,
+        error: null,
+        result: res,
+      }));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Request failed";
       setSession((s) => ({
@@ -124,17 +115,35 @@ export default function Playground({
         <div className="banner-info">Running request through TokenWise…</div>
       )}
 
-      {error && <div className="banner-info">{error}</div>}
+      {error && (
+        <div className="request-error" role="alert">
+          <div>
+            <strong>TokenWise could not complete this request</strong>
+            <p>{error}</p>
+            <small>
+              No mock answer was generated.
+              {result && " The previous successful result remains below."}
+            </small>
+          </div>
+          <button
+            className="retry-button"
+            type="button"
+            disabled={loading}
+            onClick={() => void handleSubmit()}
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
       {result && (
         <div className="result">
-          <h2>Answer</h2>
+          <h2>{error ? "Previous successful answer" : "Answer"}</h2>
           <div className="answer">{result.answer}</div>
 
           <DecisionReceipt
             receipt={result.receipt}
             policyMode={policyMode}
-            usedMock={result.usedMock}
           />
         </div>
       )}

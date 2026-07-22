@@ -1,4 +1,4 @@
-import type { PolicyMode, RunResponse } from "./types";
+import type { DecisionReceipt, PolicyMode, RunResponse } from "./types";
 
 const WEBHOOK_URL =
   import.meta.env.VITE_N8N_WEBHOOK_URL ??
@@ -45,12 +45,9 @@ export interface UsageSummary {
 /**
  * Send a prompt through the TokenWise pipeline.
  *
- * Primary path: POST to the n8n webhook (Layer 2), which orchestrates the
- * FastAPI services and returns { answer, receipt }.
- *
- * Fallback path (TEMPORARY): if n8n is not reachable / workflow not imported,
- * we return a clearly-labelled local mock so the UI is still demonstrable.
- * Remove the fallback once the n8n workflow is reliably running.
+ * POST to the n8n webhook (Layer 2), which orchestrates the FastAPI services
+ * and returns { answer, receipt }. Pipeline failures are surfaced to the UI;
+ * the frontend never invents a replacement response.
  */
 async function fileToBase64(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
@@ -77,25 +74,44 @@ export async function runPrompt(
     requestPayload.image_base64 = await fileToBase64(attachment);
   }
 
+  let res: Response;
   try {
-    const res = await fetch(WEBHOOK_URL, {
+    res = await fetch(WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestPayload),
     });
-    if (!res.ok) throw new Error(`n8n returned ${res.status}`);
-    const data = await res.json();
-    // n8n may wrap the payload in an array; normalise both shapes.
-    const responsePayload = Array.isArray(data) ? data[0] : data;
-    return {
-      answer: responsePayload.answer ?? "(no answer field returned)",
-      receipt: responsePayload.receipt,
-      usedMock: false,
-    };
   } catch (error) {
-    console.error("TokenWise request failed; using frontend mock.", error);
-    return temporaryMock(prompt, policyMode);
+    console.error("TokenWise could not reach the n8n workflow.", error);
+    throw new Error(
+      "The TokenWise workflow could not be reached. Make sure the local services are running, then try again.",
+    );
   }
+
+  if (!res.ok) {
+    throw new Error(httpFailureMessage(res.status));
+  }
+
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch (error) {
+    console.error("TokenWise received invalid JSON from n8n.", error);
+    throw new Error(
+      "The TokenWise workflow returned an unreadable response. Check the n8n workflow output, then try again.",
+    );
+  }
+
+  // n8n may wrap the payload in an array; normalise both documented shapes.
+  const responsePayload = Array.isArray(data) ? data[0] : data;
+  if (!isRunResponsePayload(responsePayload)) {
+    console.error("TokenWise received an incomplete response from n8n.", data);
+    throw new Error(
+      "The TokenWise workflow returned an incomplete response. It must include both an answer and a decision receipt.",
+    );
+  }
+
+  return responsePayload;
 }
 
 export async function fetchUsageSummary(
@@ -113,40 +129,37 @@ export async function fetchUsageSummary(
   return res.json();
 }
 
-// ---------------------------------------------------------------------------
-// TEMPORARY MOCK - remove when n8n webhook is stable.
-// ---------------------------------------------------------------------------
-function temporaryMock(prompt: string, policyMode: PolicyMode): RunResponse {
-  const estimated_tokens = Math.max(1, Math.round(prompt.length / 4));
-  const tier =
-    policyMode === "aggressive"
-      ? "cheap"
-      : policyMode === "conservative"
-        ? "balanced"
-        : estimated_tokens < 200
-          ? "cheap"
-          : "balanced";
-  const tierPrice: Record<string, number> = {
-    cheap: 0.0005,
-    balanced: 0.003,
-  };
-  const estimated_cost = Number(
-    ((estimated_tokens / 1000) * (tierPrice[tier] ?? 0.0005)).toFixed(6),
+function httpFailureMessage(status: number): string {
+  if (status === 404) {
+    return "The TokenWise workflow endpoint was not found (HTTP 404). Make sure the n8n workflow is imported and active, then try again.";
+  }
+  if ([502, 503, 504].includes(status)) {
+    return `The TokenWise workflow is temporarily unavailable (HTTP ${status}). Make sure n8n and its services are running, then try again.`;
+  }
+  if (status === 500) {
+    return "The TokenWise workflow failed or could not be reached (HTTP 500). Make sure n8n and its services are running, then check the n8n execution log and try again.";
+  }
+  return `The TokenWise workflow could not complete the request (HTTP ${status}). Check the n8n execution log, then try again.`;
+}
+
+function isRunResponsePayload(value: unknown): value is RunResponse {
+  if (!isRecord(value) || typeof value.answer !== "string") return false;
+  return isDecisionReceipt(value.receipt);
+}
+
+function isDecisionReceipt(value: unknown): value is DecisionReceipt {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.guardrail_status === "string" &&
+    typeof value.cache_status === "string" &&
+    typeof value.selected_tier === "string" &&
+    typeof value.estimated_tokens === "number" &&
+    typeof value.estimated_cost === "number" &&
+    typeof value.optimization_reason === "string" &&
+    typeof value.cost_saved === "number"
   );
-  const baseline = Number(((estimated_tokens / 1000) * 0.03).toFixed(6));
-  return {
-    answer:
-      "[LOCAL MOCK] TokenWise skeleton response. n8n webhook was not reachable, " +
-      "so this came from the temporary frontend mock.",
-    receipt: {
-      guardrail_status: "passed",
-      cache_status: "miss",
-      selected_tier: tier,
-      estimated_tokens,
-      estimated_cost,
-      optimization_reason: `[FRONTEND MOCK] policy_mode=${policyMode} -> ${tier} tier`,
-      cost_saved: Number(Math.max(0, baseline - estimated_cost).toFixed(6)),
-    },
-    usedMock: true,
-  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
