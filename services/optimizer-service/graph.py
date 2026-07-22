@@ -110,6 +110,8 @@ CODE_KEYWORDS = [
     "python", "javascript", "typescript", "java ", "c++", "function", "class ",
     "traceback", "stack trace", "compile", "bug", "refactor", "regex", "sql",
     "memory leak", "leaks memory", "code review", "review this", "unit test",
+    "write code", "code a", "build an app", "build a website", "create an app",
+    "create a web app", "implement a feature",
 ]
 DOC_KEYWORDS = [
     "document", "contract", "invoice", "report", "spreadsheet", "pdf",

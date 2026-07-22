@@ -178,7 +178,7 @@ async def execute_provider(req: ProviderExecuteRequest) -> ProviderExecuteRespon
         success=result.success,
         error_code=result.error_code,
         error_message=result.error_message,
-        attempt_role="primary",
+        attempt_role="fallback" if skipped_external else "primary",
     ))
 
     if result.success:

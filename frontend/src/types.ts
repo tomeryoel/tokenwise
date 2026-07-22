@@ -1,6 +1,7 @@
 export type PolicyMode = "conservative" | "balanced" | "aggressive";
 
 export interface DecisionReceipt {
+  policy_mode?: PolicyMode | null;
   guardrail_status: string;
   cache_status: string;
   cache_confidence?: number | null;
@@ -41,11 +42,13 @@ export interface DecisionReceipt {
   actual_cost_saved?: number | null;
   latency_ms?: number | null;
   used_fallback?: boolean | null;
+  fallback_reason?: string | null;
   privacy_enforced?: boolean | null;
   cost_calculation_status?: string | null;
   actual_execution_attempt_count?: number | null;
   prompt_redaction_applied?: boolean | null;
   provider_attempts?: string[] | null;
+  error_code?: string | null;
   has_image?: boolean | null;
   image_class?: string | null;
   image_filename?: string | null;

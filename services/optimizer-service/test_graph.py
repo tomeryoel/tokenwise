@@ -159,6 +159,15 @@ def test_support_request_classified_low_complexity():
     assert r["selected_tier"] in {"local", "cheap"}
 
 
+def test_natural_language_app_request_is_classified_as_code():
+    r = _run(
+        prompt="I want you to code a small application for me",
+        policy_mode="balanced",
+    )
+    assert r["task_type"] == "code"
+    assert r["complexity_level"] == "medium"
+
+
 def test_translation_routes_cheap_or_local():
     r = _run(prompt="Translate this support response into Hebrew: your password "
                     "has been reset successfully.", policy_mode="balanced")

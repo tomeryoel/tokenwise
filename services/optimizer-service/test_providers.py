@@ -188,7 +188,7 @@ async def test_sensitive_never_external_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_missing_external_triggers_ollama_fallback():
+async def test_missing_external_uses_ollama_provider_fallback():
     set_test_transport("ollama", httpx.MockTransport(_ollama_ok_handler))
     r = await execute_provider(_req(selected_tier="cheap"))
     assert r.success is True
@@ -199,7 +199,7 @@ async def test_missing_external_triggers_ollama_fallback():
     assert r.attempts[0].executed is False
     assert r.attempts[0].attempt_role == "configuration_check"
     assert r.attempts[1].executed is True
-    assert r.attempts[1].attempt_role == "primary"
+    assert r.attempts[1].attempt_role == "fallback"
 
 
 @pytest.mark.asyncio
