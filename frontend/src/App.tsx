@@ -4,6 +4,10 @@ import {
   initialPlaygroundSession,
   type PlaygroundSession,
 } from "./playgroundSession";
+import {
+  loadPolicyPreference,
+  savePolicyPreference,
+} from "./policyPreference";
 import Playground from "./pages/Playground";
 import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
@@ -18,9 +22,20 @@ const TABS: { id: Tab; label: string }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("playground");
-  const [policyMode, setPolicyMode] = useState<PolicyMode>("balanced");
+  const [initialPolicy] = useState(loadPolicyPreference);
+  const [policyMode, setPolicyModeState] = useState<PolicyMode>(
+    initialPolicy.mode,
+  );
+  const [policyPersistenceAvailable, setPolicyPersistenceAvailable] = useState(
+    initialPolicy.persistenceAvailable,
+  );
   const [playgroundSession, setPlaygroundSession] =
     useState<PlaygroundSession>(initialPlaygroundSession());
+
+  function setPolicyMode(mode: PolicyMode) {
+    setPolicyModeState(mode);
+    setPolicyPersistenceAvailable(savePolicyPreference(mode));
+  }
 
   return (
     <div className="app">
@@ -51,7 +66,11 @@ export default function App() {
         )}
         {tab === "dashboard" && <Dashboard />}
         {tab === "admin" && (
-          <Admin policyMode={policyMode} setPolicyMode={setPolicyMode} />
+          <Admin
+            policyMode={policyMode}
+            setPolicyMode={setPolicyMode}
+            persistenceAvailable={policyPersistenceAvailable}
+          />
         )}
       </main>
     </div>

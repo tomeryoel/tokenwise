@@ -27,6 +27,7 @@ export default function DecisionReceipt({
   const provider = providerName(receipt.provider);
   const tier = receipt.executed_tier ?? receipt.selected_tier;
   const safetyStatus = getSafetyStatus(receipt);
+  const requestStatus = getRequestStatus(receipt);
   const cacheStatus = receipt.cache_status || "unknown";
   const summary = buildSummary(receipt);
   const performanceSummary = buildPerformanceSummary(receipt, tokens, savings);
@@ -108,8 +109,8 @@ export default function DecisionReceipt({
           )}
         </div>
         <StatusPill
-          label={receipt.error_code ? "Execution issue" : "Request complete"}
-          tone={receipt.error_code ? "danger" : "positive"}
+          label={requestStatus.label}
+          tone={requestStatus.tone}
         />
       </div>
 
@@ -123,7 +124,11 @@ export default function DecisionReceipt({
         <Highlight
           label="Active policy"
           value={humanize(activePolicy)}
-          detail={`${humanize(tier)} tier`}
+          detail={
+            receipt.guardrail_status === "blocked"
+              ? "No model route"
+              : `${humanize(tier)} tier`
+          }
           tone="neutral"
         />
         <Highlight
@@ -352,6 +357,25 @@ function getSafetyStatus(receipt: DecisionReceiptData): {
     return { label: "Privacy protected", detail: "Local or redacted execution", tone: "positive" };
   }
   return { label: "Checks passed", detail: "Input and output checks passed", tone: "positive" };
+}
+
+function getRequestStatus(receipt: DecisionReceiptData): {
+  label: string;
+  tone: Tone;
+} {
+  if (
+    receipt.guardrail_status === "blocked" ||
+    receipt.output_guardrail_status === "blocked"
+  ) {
+    return { label: "Blocked safely", tone: "warning" };
+  }
+  if (receipt.error_code) {
+    return { label: "Execution issue", tone: "danger" };
+  }
+  if (receipt.cache_status === "hit") {
+    return { label: "Cache response", tone: "positive" };
+  }
+  return { label: "Request complete", tone: "positive" };
 }
 
 function buildRoutingDescription(receipt: DecisionReceiptData, tier: unknown): string {
