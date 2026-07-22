@@ -124,9 +124,29 @@ export async function fetchUsageSummary(
   if (operatingCostUsd != null) {
     params.set("operating_cost_usd", String(operatingCostUsd));
   }
-  const res = await fetch(`${USAGE_SUMMARY_URL}?${params.toString()}`);
-  if (!res.ok) throw new Error(`usage summary returned ${res.status}`);
-  return res.json();
+  let res: Response;
+  try {
+    res = await fetch(`${USAGE_SUMMARY_URL}?${params.toString()}`);
+  } catch (error) {
+    console.error("TokenWise could not reach the usage analytics workflow.", error);
+    throw new Error(
+      "The live usage analytics endpoint could not be reached. Make sure n8n and the optimizer service are running.",
+    );
+  }
+  if (!res.ok) {
+    if ([500, 502, 503, 504].includes(res.status)) {
+      throw new Error(
+        `The usage analytics workflow failed or is unavailable (HTTP ${res.status}). Make sure n8n and the optimizer service are running.`,
+      );
+    }
+    throw new Error(`The usage analytics workflow returned HTTP ${res.status}.`);
+  }
+  try {
+    return await res.json();
+  } catch (error) {
+    console.error("TokenWise received invalid usage analytics JSON.", error);
+    throw new Error("The usage analytics workflow returned an unreadable response.");
+  }
 }
 
 function httpFailureMessage(status: number): string {
