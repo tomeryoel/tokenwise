@@ -27,7 +27,7 @@ WEIGHTS_ID = "IMAGENET1K_V1"
 
 CLASSES = ("screenshot", "diagram", "chart", "document_photo")
 
-# ImageNet label keywords mapped to TokenWise coarse classes.
+# ImageNet label keywords mapped to MomiHelm coarse classes.
 _CLASS_KEYWORDS: dict[str, tuple[str, ...]] = {
     "screenshot": (
         "monitor", "screen", "laptop", "desktop computer", "notebook",
@@ -162,7 +162,7 @@ def _visual_complexity(img: PilImage, probs: torch.Tensor) -> float:
 
 
 def classify_image(img: PilImage) -> AnalysisResult:
-    """Run ResNet18 inference and map to TokenWise coarse classes."""
+    """Run ResNet18 inference and map to MomiHelm coarse classes."""
     _load_model()
     assert _model is not None and _preprocess is not None and _categories is not None
 

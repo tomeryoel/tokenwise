@@ -1,8 +1,8 @@
-# TokenWise Langfuse Observability (Day 9)
+# MomiHelm Langfuse Observability (Day 9)
 
 ## Purpose
 
-TokenWise exports one privacy-safe Langfuse trace for every terminal request path.
+MomiHelm exports one privacy-safe Langfuse trace for every terminal request path.
 The implementation adds operational visibility without changing the four FastAPI
 service architecture and without making Langfuse a dependency of the core stack.
 
@@ -35,7 +35,7 @@ No n8n workflow change or re-import is required for Day 9. The exporter lives in
 
 ## Start The Optional Stack
 
-The regular `docker compose up --build` command starts only TokenWise. Langfuse uses
+The regular `docker compose up --build` command starts only MomiHelm. Langfuse uses
 a separate override because its official self-hosted deployment also requires
 Postgres, ClickHouse, Redis, and MinIO.
 
@@ -60,7 +60,7 @@ Postgres, ClickHouse, Redis, and MinIO.
    `LANGFUSE_PUBLIC_URL` to the URL that a browser can open; local development uses
    `http://localhost:3000` while containers ingest through `http://langfuse-web:3000`.
 
-3. Start TokenWise and Langfuse together.
+3. Start MomiHelm and Langfuse together.
 
    ```bash
    docker compose --env-file .env.langfuse \
@@ -92,7 +92,7 @@ docker compose --env-file .env.langfuse \
 ```
 
 Do not add `--volumes` unless you intentionally want to delete local Langfuse and
-TokenWise persisted data.
+MomiHelm persisted data.
 
 ## Trace Model
 

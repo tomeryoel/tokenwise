@@ -2,6 +2,7 @@ import type {
   DecisionReceipt as DecisionReceiptData,
   PolicyMode,
 } from "../types";
+import { PRODUCT_NAME } from "../brand";
 
 interface Props {
   receipt: DecisionReceiptData;
@@ -100,7 +101,7 @@ export default function DecisionReceipt({
         <div>
           <div className="receipt-eyebrow">
             <span className="status-dot positive" />
-            Live TokenWise decision
+            Live {PRODUCT_NAME} decision
           </div>
           <h3 id="decision-receipt-title">Decision summary</h3>
           <p className="decision-summary">{summary}</p>

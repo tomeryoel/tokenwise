@@ -81,7 +81,7 @@ def assert_ragas_api() -> str:
     return ver
 
 
-# Custom TokenWise grounding rubric (1-5) implemented with the Ragas collections
+# Custom MomiHelm grounding rubric (1-5) implemented with the Ragas collections
 # DomainSpecificRubrics metric (robust instructor path). Penalizes unsupported claims.
 TOKENWISE_RUBRICS = {
     "score1_description": (
@@ -89,7 +89,7 @@ TOKENWISE_RUBRICS = {
         "unusable."
     ),
     "score2_description": (
-        "The response is weakly relevant OR makes unsupported claims about TokenWise "
+        "The response is weakly relevant OR makes unsupported claims about MomiHelm "
         "capabilities that are NOT in the reference (e.g. real-time load optimization, "
         "autoscaling, learned routing, live provider-quality ranking, automatic "
         "company-policy ingestion, or real Policy RAG enforcement)."
@@ -105,7 +105,7 @@ TOKENWISE_RUBRICS = {
     "score5_description": (
         "The response directly answers the question, follows the instruction, is fully "
         "consistent with the reference, correctly distinguishes implemented vs planned "
-        "TokenWise features, makes no unsupported capability claims, and is concise and clear."
+        "MomiHelm features, makes no unsupported capability claims, and is concise and clear."
     ),
 }
 

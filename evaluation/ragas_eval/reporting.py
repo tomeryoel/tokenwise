@@ -173,10 +173,10 @@ def build_markdown_report(config: dict[str, Any], dataset_snapshot: dict[str, An
     qpr = agg.get("quality_preservation_ratio")
 
     lines: list[str] = []
-    lines.append(f"# TokenWise Ragas Evaluation Report — run `{md.get('run_id')}`\n")
+    lines.append(f"# MomiHelm Ragas Evaluation Report — run `{md.get('run_id')}`\n")
     lines.append("## Objective\n")
     lines.append(
-        "Measure whether the TokenWise pipeline (guardrails + semantic cache + LangGraph "
+        "Measure whether the MomiHelm pipeline (guardrails + semantic cache + LangGraph "
         "routing + provider fallback) reduces modeled cost / token usage / unnecessary model "
         "calls while preserving acceptable answer quality, compared with an un-optimized "
         "direct baseline. Ragas is used as an OFFLINE evaluation layer, never in the "
@@ -185,9 +185,9 @@ def build_markdown_report(config: dict[str, Any], dataset_snapshot: dict[str, An
     lines.append("## Architecture\n")
     lines.append("```")
     lines.append("Evaluation Dataset")
-    lines.append("├── Direct Baseline Provider (Ollama, no TokenWise)")
+    lines.append("├── Direct Baseline Provider (Ollama, no MomiHelm)")
     lines.append("│   └── Baseline Response")
-    lines.append("└── TokenWise n8n Pipeline (guardrails→cache→LangGraph→provider→output guard)")
+    lines.append("└── MomiHelm n8n Pipeline (guardrails→cache→LangGraph→provider→output guard)")
     lines.append("    └── Optimized Response")
     lines.append("Baseline + Optimized + Reference → Ragas Experiment → Quality Metrics")
     lines.append("→ Token / Cost / Latency Comparison → Evaluation Report")
@@ -200,7 +200,7 @@ def build_markdown_report(config: dict[str, Any], dataset_snapshot: dict[str, An
     lines.append(f"- Baseline: `{md.get('baseline_provider')}` / `{md.get('baseline_model')}`")
     lines.append(f"- Mode: `{md.get('mode')}` | Policy mode: `{md.get('policy_mode')}`")
     lines.append(f"- Evaluation department: `{md.get('evaluation_department')}`")
-    lines.append(f"- TokenWise git commit: `{md.get('tokenwise_git_commit')}` (dirty={md.get('tokenwise_git_dirty')})")
+    lines.append(f"- MomiHelm git commit: `{md.get('tokenwise_git_commit')}` (dirty={md.get('tokenwise_git_dirty')})")
     lines.append(f"- Dataset version `{dataset_snapshot.get('dataset_version')}`, "
                  f"fingerprint `{md.get('dataset_fingerprint','')[:16]}...`")
     lines.append(f"- Duration: {md.get('duration_seconds')}s | generator calls: "
@@ -208,8 +208,8 @@ def build_markdown_report(config: dict[str, Any], dataset_snapshot: dict[str, An
                  f"embedding calls: {md.get('embedding_calls')}")
     lines.append(f"- Ragas experiment: `{result.get('ragas_experiment_name')}`\n")
 
-    lines.append("## Quality metrics (baseline vs TokenWise)\n")
-    lines.append("| Metric | Baseline mean | TokenWise mean | Delta |")
+    lines.append("## Quality metrics (baseline vs MomiHelm)\n")
+    lines.append("| Metric | Baseline mean | MomiHelm mean | Delta |")
     lines.append("|---|---|---|---|")
     bmeans = agg.get("baseline_metric_means", {})
     tmeans = agg.get("tokenwise_metric_means", {})
@@ -218,8 +218,8 @@ def build_markdown_report(config: dict[str, Any], dataset_snapshot: dict[str, An
         lines.append(f"| {m} | {_fmt(bmeans.get(m))} | {_fmt(tmeans.get(m))} | {_fmt(deltas.get(m))} |")
     lines.append("")
     lines.append(f"- Baseline mean composite quality: **{_fmt(agg.get('baseline_mean_composite'))}**")
-    lines.append(f"- TokenWise mean composite quality: **{_fmt(agg.get('tokenwise_mean_composite'))}**")
-    lines.append(f"- **quality_preservation_ratio** (TokenWise derived metric): "
+    lines.append(f"- MomiHelm mean composite quality: **{_fmt(agg.get('tokenwise_mean_composite'))}**")
+    lines.append(f"- **quality_preservation_ratio** (MomiHelm derived metric): "
                  f"**{_fmt(qpr)}** (gate ≥ {md.get('quality_gate_ratio')})")
     lines.append("")
 
@@ -233,10 +233,10 @@ def build_markdown_report(config: dict[str, Any], dataset_snapshot: dict[str, An
         lines.append("- all sub-conditions satisfied")
     lines.append("")
     if passed:
-        lines.append("On this small curated dataset, TokenWise **preserves acceptable answer "
+        lines.append("On this small curated dataset, MomiHelm **preserves acceptable answer "
                      "quality** (quality gate passed) while changing cost/token/latency as shown below.\n")
     else:
-        lines.append("The quality gate **did not pass**. TokenWise quality preservation is NOT "
+        lines.append("The quality gate **did not pass**. MomiHelm quality preservation is NOT "
                      "claimed for this run. See failing cases and metric declines below.\n")
 
     lines.append("## Behavioral system results\n")
@@ -250,8 +250,8 @@ def build_markdown_report(config: dict[str, Any], dataset_snapshot: dict[str, An
     lines.append("")
 
     lines.append("## Efficiency (token / latency / modeled cost)\n")
-    lines.append(f"- Mean total token delta (TokenWise − baseline): {_fmt(agg.get('mean_total_token_delta'))}")
-    lines.append(f"- Mean latency delta ms (TokenWise − baseline): {_fmt(agg.get('mean_latency_delta_ms'))}")
+    lines.append(f"- Mean total token delta (MomiHelm − baseline): {_fmt(agg.get('mean_total_token_delta'))}")
+    lines.append(f"- Mean latency delta ms (MomiHelm − baseline): {_fmt(agg.get('mean_latency_delta_ms'))}")
     lines.append(f"- Mean modeled cost delta (USD): {_fmt(agg.get('mean_modeled_cost_delta'))}")
     lines.append(f"- ROI: `{agg.get('roi_status')}` (roi_percentage={agg.get('roi_percentage')})")
     lines.append("")
@@ -265,7 +265,7 @@ def build_markdown_report(config: dict[str, Any], dataset_snapshot: dict[str, An
         rub_b = grounding.get("baseline_scores", {}).get(M_RUBRIC, {})
         rub_t = grounding.get("tokenwise_scores", {}).get(M_RUBRIC, {})
         lines.append(f"- Baseline grounding rubric: {_fmt(rub_b.get('value'))} — {rub_b.get('reason')}")
-        lines.append(f"- TokenWise grounding rubric: {_fmt(rub_t.get('value'))} — {rub_t.get('reason')}")
+        lines.append(f"- MomiHelm grounding rubric: {_fmt(rub_t.get('value'))} — {rub_t.get('reason')}")
         lines.append("- The custom rubric penalizes claims of unimplemented capabilities "
                      "(real-time load optimization, autoscaling, learned routing, live provider "
                      "ranking, automatic policy ingestion, real Policy RAG enforcement).")
@@ -293,7 +293,7 @@ def build_markdown_report(config: dict[str, Any], dataset_snapshot: dict[str, An
     lines.append("## Evidence-based conclusion\n")
     if passed:
         lines.append(
-            f"TokenWise preserved acceptable answer quality on this dataset "
+            f"MomiHelm preserved acceptable answer quality on this dataset "
             f"(quality_preservation_ratio = {_fmt(qpr)} ≥ {md.get('quality_gate_ratio')}) and "
             f"achieved 100% behavioral safety/privacy correctness. Results are an academic-MVP "
             f"demonstration, not production-grade assurance.")

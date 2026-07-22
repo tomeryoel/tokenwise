@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { fetchUsageSummary, type UsageSummary } from "../api";
+import { PRODUCT_NAME } from "../brand";
 
 const PERIOD_OPTIONS = [7, 30, 90];
 
@@ -140,7 +141,7 @@ export default function Dashboard() {
           <span className="page-eyebrow">Live usage intelligence</span>
           <h1>Dashboard</h1>
           <p>
-            A decision-level view of TokenWise usage, cost avoidance, and
+            A decision-level view of {PRODUCT_NAME} usage, cost avoidance, and
             operating behavior from the local SQLite database.
           </p>
         </div>

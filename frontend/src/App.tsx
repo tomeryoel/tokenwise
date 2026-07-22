@@ -11,6 +11,7 @@ import {
 import Playground from "./pages/Playground";
 import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
+import { PRODUCT_NAME } from "./brand";
 
 type Tab = "playground" | "dashboard" | "admin";
 
@@ -40,7 +41,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">TokenWise</div>
+        <div className="brand">{PRODUCT_NAME}</div>
         <nav className="nav">
           {TABS.map((t) => (
             <button

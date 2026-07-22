@@ -1,4 +1,4 @@
-"""Dataset and result schemas + validation for the TokenWise Ragas evaluation."""
+"""Dataset and result schemas + validation for the MomiHelm Ragas evaluation."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 # Allowed dataset categories (A/B/C groups from the eval design).
 ALLOWED_CATEGORIES = {
-    # A. TokenWise architecture / behavior grounding
+    # A. MomiHelm architecture / behavior grounding
     "tokenwise_architecture",
     # B. General AI tasks
     "general_qa",

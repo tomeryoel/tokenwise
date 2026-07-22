@@ -1,7 +1,7 @@
-# TokenWise - Architecture
+# MomiHelm - Architecture
 
-TokenWise is a real-time LLM cost-optimization gateway. Every AI request passes
-through TokenWise, which optimizes it before it reaches a model, then reports the
+MomiHelm is a real-time LLM cost-optimization gateway. Every AI request passes
+through MomiHelm, which optimizes it before it reaches a model, then reports the
 savings. This document shows the four-layer architecture and the optional Day 9
 observability stack wired around the real end-to-end request path.
 
@@ -211,7 +211,7 @@ in [langfuse-observability.md](langfuse-observability.md).
 | Dashboard metrics | Real (Day 7: from GET /usage/summary) |
 | PyTorch image analysis | Real (Day 8: ResNet18 coarse classes + complexity; wired in n8n) |
 | Model provider call | Real (Day 6: Ollama local + optional OpenAI via /providers/execute) |
-| TokenWise product-answer grounding | Real (capability SoT JSON + deterministic detector; product Q&A only) |
+| MomiHelm product-answer grounding | Real (capability SoT JSON + deterministic detector; product Q&A only) |
 | Structured policy (`policy_mode` config) | Real (config enum drives compression thresholds + tier selection) |
 | Policy Evidence Retrieval (`/policy/query`) | Placeholder (returns `{"policies": []}`; not wired into n8n) |
 | Ragas AI evaluation | Real, **offline** (Ragas 0.4.3; local Ollama judge + local MiniLM embeddings; not in the request path) |
@@ -227,12 +227,12 @@ not counted in `actual_execution_attempt_count`.
 Ragas is used as an **offline** AI-evaluation layer (in `evaluation/`), never in
 the real-time request path. It runs real Ragas `0.4.3` metrics (collections +
 `@experiment` API) on real generated responses and compares an un-optimized
-direct baseline against the real TokenWise n8n pipeline.
+direct baseline against the real MomiHelm n8n pipeline.
 
 ```mermaid
 flowchart TD
-  DS[Evaluation Dataset] --> B[Direct Baseline\nOllama, bypasses TokenWise]
-  DS --> T[TokenWise n8n Pipeline\nguardrails→cache→LangGraph→provider→output guard]
+  DS[Evaluation Dataset] --> B[Direct Baseline\nOllama, bypasses MomiHelm]
+  DS --> T[MomiHelm n8n Pipeline\nguardrails→cache→LangGraph→provider→output guard]
   B --> BR[Baseline Response]
   T --> OR[Optimized Response]
   BR --> R[Ragas Experiment]
@@ -247,7 +247,7 @@ flowchart TD
   (`ragas.llms.llm_factory`); no OpenAI key, no LiteLLM proxy.
 - **Embeddings:** local `sentence-transformers/all-MiniLM-L6-v2`.
 - **Metrics:** Semantic Similarity, Response Relevancy, Factual Correctness, and
-  a custom `DomainSpecificRubrics` TokenWise grounding rubric; plus the derived
+  a custom `DomainSpecificRubrics` MomiHelm grounding rubric; plus the derived
   `quality_preservation_ratio` and a quality gate (≥ 0.90).
 - **Ragas ≠ RAG ≠ Semantic Cache ≠ Langfuse ≠ Usage Analytics.** The generation
   path has no retrieved contexts, so Faithfulness / Context Precision / Recall
@@ -259,7 +259,7 @@ and [evaluation/README.md](../evaluation/README.md).
 
 ## Policy Intelligence (design)
 
-TokenWise **Policy Intelligence** is defined as two complementary layers, so that
+MomiHelm **Policy Intelligence** is defined as two complementary layers, so that
 unstructured retrieved text is never the sole authority for hard runtime decisions:
 
 - **Structured Policy Engine** — deterministic, approved policy values; the runtime
@@ -281,7 +281,7 @@ commercial roadmap, risks) is specified in
 
 `image-analyser-service` runs **real CPU PyTorch inference** with torchvision
 `resnet18` (`IMAGENET1K_V1` weights). It maps ImageNet top-k labels into coarse
-TokenWise classes (`screenshot`, `diagram`, `chart`, `document_photo`) and a
+MomiHelm classes (`screenshot`, `diagram`, `chart`, `document_photo`) and a
 `visual_complexity` score used by LangGraph `vision_path` when complexity ≥ 0.5.
 
 - Endpoint: `POST /analyse` with optional `image_base64` (max 5 MiB decoded).
@@ -295,7 +295,7 @@ semantic cache) → vision or standard path → usage logging.
 
 ### Deferred hardening (not Day 8)
 
-TokenWise product-QA answers may require either:
+MomiHelm product-QA answers may require either:
 
 - Semantic Cache bypass for product questions, or
 - capability-version-aware cache keys

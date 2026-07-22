@@ -81,7 +81,7 @@ def test_model_path_exports_expected_spans_and_usage():
         request_id="r-model",
         dept_id="support",
         policy_mode="balanced",
-        prompt="How can TokenWise reduce model cost?",
+        prompt="How can MomiHelm reduce model cost?",
         task_type="product_question",
         guardrail_status="passed",
         cache_status="miss",

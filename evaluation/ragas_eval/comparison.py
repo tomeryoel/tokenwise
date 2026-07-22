@@ -1,6 +1,6 @@
-"""Derived TokenWise evaluation metrics and baseline-vs-optimized comparison.
+"""Derived MomiHelm evaluation metrics and baseline-vs-optimized comparison.
 
-quality_preservation_ratio is a TokenWise PROJECT-LEVEL derived metric, NOT a
+quality_preservation_ratio is a MomiHelm PROJECT-LEVEL derived metric, NOT a
 built-in Ragas metric. All functions here are pure for straightforward testing.
 """
 from __future__ import annotations
@@ -53,7 +53,7 @@ def mean(values: list[float]) -> Optional[float]:
 def quality_preservation_ratio(
     baseline_mean: Optional[float], optimized_mean: Optional[float]
 ) -> Optional[float]:
-    """optimized_mean / baseline_mean (TokenWise derived metric)."""
+    """optimized_mean / baseline_mean (MomiHelm derived metric)."""
     if baseline_mean is None or optimized_mean is None or baseline_mean <= 0:
         return None
     return round(optimized_mean / baseline_mean, 6)

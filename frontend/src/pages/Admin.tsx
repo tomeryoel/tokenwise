@@ -1,4 +1,5 @@
 import type { PolicyMode } from "../types";
+import { PRODUCT_NAME } from "../brand";
 
 interface Props {
   policyMode: PolicyMode;
@@ -27,7 +28,7 @@ export default function Admin({
       <span className="page-eyebrow">Local policy control</span>
       <h1>Optimization policy</h1>
       <p className="policy-intro">
-        Choose how TokenWise balances answer quality and savings. Every
+        Choose how {PRODUCT_NAME} balances answer quality and savings. Every
         Playground request uses the active mode, while safety and privacy rules
         always remain enforced.
       </p>

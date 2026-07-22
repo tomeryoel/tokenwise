@@ -1,8 +1,8 @@
-"""Execution clients: honest direct baseline vs the real TokenWise n8n pipeline.
+"""Execution clients: honest direct baseline vs the real MomiHelm n8n pipeline.
 
-- BaselineClient bypasses TokenWise entirely (no guardrails, cache, LangGraph,
+- BaselineClient bypasses MomiHelm entirely (no guardrails, cache, LangGraph,
   fallback, savings): it calls Ollama directly with a fixed model.
-- TokenWiseClient calls the real active n8n webhook and safely parses the
+- TokenWiseClient (legacy internal name) calls the real active MomiHelm webhook and parses the
   Decision Receipt.
 """
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Configuration for the TokenWise offline Ragas evaluation.
+"""Configuration for the MomiHelm offline Ragas evaluation.
 
 All values are environment-overridable so the experiment is reproducible on a new
 machine. Defaults target a fully local run (Ollama judge + local HF embeddings)
@@ -95,7 +95,7 @@ class EvalConfig:
     baseline_provider: str = field(default_factory=lambda: _env("TOKENWISE_BASELINE_PROVIDER", "ollama"))
     baseline_model: str = field(default_factory=lambda: _env("TOKENWISE_BASELINE_MODEL", "llama3.1:latest"))
 
-    # --- TokenWise optimized path ---
+    # --- MomiHelm optimized path ---
     webhook_url: str = field(
         default_factory=lambda: _env(
             "TOKENWISE_WEBHOOK_URL", "http://localhost:5679/webhook/tokenwise"

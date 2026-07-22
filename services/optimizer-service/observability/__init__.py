@@ -1,4 +1,4 @@
-"""Langfuse tracing for privacy-safe TokenWise request outcomes."""
+"""Langfuse tracing for privacy-safe MomiHelm request outcomes."""
 
 from observability.exporter import LangfuseTraceExporter, get_trace_exporter
 

@@ -1,14 +1,14 @@
-# TokenWise — Offline Ragas AI Evaluation
+# MomiHelm — Offline Ragas AI Evaluation
 
 This directory contains the **offline** [Ragas](https://docs.ragas.io) evaluation
-layer for TokenWise. It runs **real Ragas metrics on real generated responses**
+layer for MomiHelm. It runs **real Ragas metrics on real generated responses**
 and produces saved, reviewable artifacts. It is an experimentation layer — **not**
 a production service and **never** part of the real-time request path.
 
 > Lecturer requirement: the project must use Ragas for AI evaluation. This layer
 > satisfies that with genuine Ragas scoring (no fabricated scores).
 
-## Why Ragas, and how it differs from other TokenWise pieces
+## Why Ragas, and how it differs from other MomiHelm pieces
 
 | Concept | What it is | Where it lives |
 |---|---|---|
@@ -25,17 +25,17 @@ semantic cache, nor tracing, nor the usage dashboard.
 
 Two execution variants are compared on a curated dataset:
 
-- **Baseline** — a direct Ollama call with a fixed model, bypassing TokenWise
+- **Baseline** — a direct Ollama call with a fixed model, bypassing MomiHelm
   entirely (no guardrails, no cache, no LangGraph routing, no fallback, no
   savings mechanisms).
-- **TokenWise (optimized)** — the **real** n8n webhook pipeline:
+- **MomiHelm (optimized)** — the **real** n8n webhook pipeline:
   `n8n → Input Guardrails → Semantic Cache → LangGraph Optimizer → Provider
   Execution → Output Guardrails → Usage Logging`.
 
 ```mermaid
 flowchart TD
-  DS[Evaluation Dataset] --> B[Direct Baseline Provider\nOllama, no TokenWise]
-  DS --> T[TokenWise n8n Pipeline\nguardrails→cache→LangGraph→provider→output guard]
+  DS[Evaluation Dataset] --> B[Direct Baseline Provider\nOllama, no MomiHelm]
+  DS --> T[MomiHelm n8n Pipeline\nguardrails→cache→LangGraph→provider→output guard]
   B --> BR[Baseline Response]
   T --> OR[Optimized Response]
   BR --> RAG[Ragas Experiment]
@@ -79,9 +79,9 @@ flowchart TD
 | Semantic Similarity | embeddings | `collections.SemanticSimilarity` (MiniLM) |
 | Response Relevancy | LLM + embeddings | `collections.AnswerRelevancy` |
 | Factual Correctness | LLM | `collections.FactualCorrectness` |
-| TokenWise Grounding Rubric (1-5 → 0-1) | LLM | `collections.DomainSpecificRubrics` (custom rubric) |
+| MomiHelm Grounding Rubric (1-5 → 0-1) | LLM | `collections.DomainSpecificRubrics` (custom rubric) |
 
-**quality_preservation_ratio** is a **TokenWise-derived** project metric (not a
+**quality_preservation_ratio** is a **MomiHelm-derived** project metric (not a
 Ragas built-in): the ratio of the optimized mean composite quality to the
 baseline mean composite quality. Composite quality weights: semantic 0.35,
 relevancy 0.25, factual 0.25, rubric 0.15; **missing/failed metrics are excluded
@@ -95,13 +95,13 @@ RAG.
 
 `datasets/tokenwise_eval_dataset.json` — 13 curated, safe cases:
 
-- **Answer-quality** (8): TokenWise architecture grounding, semantic cache,
+- **Answer-quality** (8): MomiHelm architecture grounding, semantic cache,
   guardrails, general QA, explanation, summarization, code explanation, reasoning.
 - **Behavioral** (5): prompt-injection block, secret block, general-topic allow,
   PII→local-only redaction, semantic-cache repeat hit.
 
 Includes the mandatory grounding case
-`Explain how TokenWise chooses between a local model and an external model.`
+`Explain how MomiHelm chooses between a local model and an external model.`
 whose reference describes **only currently-implemented behavior**; the rubric
 penalizes claims of unimplemented capabilities. No real PII/secrets — the PII
 case uses `evaluation.user@example.invalid`.
@@ -138,7 +138,7 @@ Targeted runs record `targeted=true` in artifacts and do **not** execute unrelat
 
 ### Product-answer grounding (runtime, not Ragas)
 
-Ragas originally penalized `tw-architecture-001` because TokenWise invented unsupported
+Ragas originally penalized `tw-architecture-001` because MomiHelm invented unsupported
 routing claims. Runtime fix (separate from this eval package):
 
 - Capability SoT: `services/optimizer-service/config/tokenwise_capabilities.json`
@@ -147,7 +147,7 @@ routing claims. Runtime fix (separate from this eval package):
 - Original failed full-run report is preserved in
   `docs/evaluation/ragas-evaluation-report.md`; targeted re-validation does not replace it.
 
-Prerequisites: Ollama running with `llama3.1:latest` pulled, and the TokenWise
+Prerequisites: Ollama running with `llama3.1:latest` pulled, and the MomiHelm
 stack up (`docker compose up -d`) so the n8n webhook + optimizer are reachable.
 
 ### Optional: one-off Docker profile
@@ -198,7 +198,7 @@ are an academic-MVP demonstration, not production-grade assurance.
 
 ## Deferred hardening (product-QA cache)
 
-TokenWise product-QA answers may require either Semantic Cache bypass or
+MomiHelm product-QA answers may require either Semantic Cache bypass or
 capability-version-aware cache keys, because stale cached product answers could
 predate capability-grounding updates. Not implemented in Day 8.
 

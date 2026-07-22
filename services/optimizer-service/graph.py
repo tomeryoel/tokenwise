@@ -1,4 +1,4 @@
-"""TokenWise Optimization Engine - a real, CONDITIONAL LangGraph state graph.
+"""MomiHelm Optimization Engine - a real, CONDITIONAL LangGraph state graph.
 
 Day 5.1 upgrade: the graph is no longer structurally linear. After input
 normalization and signal evaluation, a router (`route_request_path`) uses

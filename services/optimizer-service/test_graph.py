@@ -74,7 +74,7 @@ def test_E_standard_short_skips_compression():
 
 
 def test_F_standard_long_aggressive_runs_compression():
-    long_prompt = ("TokenWise reduces cost by caching and routing. " * 60)
+    long_prompt = ("MomiHelm reduces cost by caching and routing. " * 60)
     r = _run(prompt=long_prompt, policy_mode="aggressive")
     assert r["graph_path"] == "standard_optimization_path"
     assert "decide_compression" in r["executed_nodes"]
@@ -84,7 +84,7 @@ def test_F_standard_long_aggressive_runs_compression():
 
 
 def test_G_standard_long_conservative_differs_from_aggressive():
-    long_prompt = ("TokenWise reduces cost by caching and routing for support. " * 18)
+    long_prompt = ("MomiHelm reduces cost by caching and routing for support. " * 18)
     aggressive = _run(prompt=long_prompt, policy_mode="aggressive")
     conservative = _run(prompt=long_prompt, policy_mode="conservative")
     assert conservative["graph_path"] == "standard_optimization_path"

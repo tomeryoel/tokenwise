@@ -1,4 +1,4 @@
-"""CLI entrypoint for the offline TokenWise Ragas evaluation.
+"""CLI entrypoint for the offline MomiHelm Ragas evaluation.
 
 Examples (host-side, from the repo root, using the isolated venv):
 
@@ -49,8 +49,8 @@ async def _env_check() -> int:
     print("[env-check] running one real Ragas metric (semantic similarity)...")
     s = await runner.engine.score_semantic(
         "envcheck",
-        "TokenWise routes sensitive requests to a local model.",
-        "TokenWise keeps sensitive prompts on a local model.",
+        "MomiHelm routes sensitive requests to a local model.",
+        "MomiHelm keeps sensitive prompts on a local model.",
     )
     print(f"[env-check] semantic_similarity -> value={s.value} status={s.status}")
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -154,7 +154,7 @@ async def _run(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="TokenWise offline Ragas evaluation")
+    parser = argparse.ArgumentParser(description="MomiHelm offline Ragas evaluation")
     parser.add_argument("--mode", choices=["smoke", "full"], default="smoke")
     parser.add_argument("--env-check", action="store_true",
                         help="Test A: validate env + run one real Ragas metric, then exit.")

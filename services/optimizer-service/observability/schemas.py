@@ -1,4 +1,4 @@
-"""Schemas returned by the TokenWise observability layer."""
+"""Schemas returned by the MomiHelm observability layer."""
 
 from __future__ import annotations
 

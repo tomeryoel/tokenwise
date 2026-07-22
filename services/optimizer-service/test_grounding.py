@@ -1,4 +1,4 @@
-"""Focused tests for TokenWise product-question grounding."""
+"""Focused tests for MomiHelm product-question grounding."""
 
 from __future__ import annotations
 
@@ -44,13 +44,13 @@ def test_implemented_planned_unsupported_separation():
 @pytest.mark.parametrize(
     "prompt",
     [
-        "Explain how TokenWise chooses between a local model and an external model.",
-        "How does TokenWise choose a model?",
-        "Does TokenWise use system load?",
-        "Does TokenWise have Policy RAG?",
-        "How does TokenWise fallback work?",
-        "What is currently implemented in TokenWise?",
-        "Which signals affect TokenWise routing?",
+        "Explain how MomiHelm chooses between a local model and an external model.",
+        "How does MomiHelm choose a model?",
+        "Does MomiHelm use system load?",
+        "Does MomiHelm have Policy RAG?",
+        "How does MomiHelm fallback work?",
+        "What is currently implemented in MomiHelm?",
+        "Which signals affect MomiHelm routing?",
     ],
 )
 def test_detects_tokenwise_product_questions(prompt):
@@ -72,6 +72,10 @@ def test_unrelated_prompts_not_detected(prompt):
     assert is_tokenwise_product_question(prompt) is False
 
 
+def test_legacy_product_name_remains_a_compatible_alias():
+    assert is_tokenwise_product_question("How does TokenWise choose a model?") is True
+
+
 def test_unrelated_prompts_remain_ungrounded():
     system, grounded = resolve_system_prompt("Explain this Python function.")
     assert grounded is False
@@ -80,7 +84,7 @@ def test_unrelated_prompts_remain_ungrounded():
 
 def test_product_prompts_receive_grounding_context():
     system, grounded = resolve_system_prompt(
-        "Explain how TokenWise chooses between a local model and an external model."
+        "Explain how MomiHelm chooses between a local model and an external model."
     )
     assert grounded is True
     assert "rule-based" in system.lower()
@@ -162,4 +166,4 @@ def test_no_complete_decision_receipt_in_prompt():
 
 def test_capabilities_file_is_valid_json():
     data = json.loads(CAP_PATH.read_text(encoding="utf-8"))
-    assert data["product"] == "TokenWise"
+    assert data["product"] == "MomiHelm"

@@ -1,7 +1,7 @@
-# TokenWise — Policy Intelligence Design
+# MomiHelm — Policy Intelligence Design
 
 Status: **planning / product-architecture specification** (no runtime code changes).
-This document defines the intended TokenWise **Policy Intelligence** model. It corrects
+This document defines the intended MomiHelm **Policy Intelligence** model. It corrects
 an earlier framing that risked treating unstructured, RAG-retrieved policy text as the
 sole authority for hard runtime decisions.
 
@@ -15,7 +15,7 @@ sole authority for hard runtime decisions.
 ## 1. Problem statement
 
 The original "Policy Retrieval" concept assumed a customer would author many policies per
-department and/or upload every company document before TokenWise became useful, with
+department and/or upload every company document before MomiHelm became useful, with
 retrieved natural-language text driving routing, privacy, budget, and provider decisions.
 
 That framing has two problems:
@@ -26,7 +26,7 @@ That framing has two problems:
    of truth for *hard* enforcement (privacy, budget, provider allow-lists) is unpredictable,
    hard to audit, and unsafe. Retrieval is probabilistic; enforcement must be deterministic.
 
-TokenWise must remain **simple to understand, fast to configure, commercially credible,
+MomiHelm must remain **simple to understand, fast to configure, commercially credible,
 safe and auditable, and scalable across departments without duplicating configuration.**
 
 ---
@@ -49,7 +49,7 @@ safe and auditable, and scalable across departments without duplicating configur
 
 ## 3. Two-layer Policy Intelligence
 
-TokenWise **Policy Intelligence** is composed of two complementary layers.
+MomiHelm **Policy Intelligence** is composed of two complementary layers.
 
 ### 3.1 Structured Policy Engine (source of truth)
 
@@ -71,7 +71,7 @@ TokenWise **Policy Intelligence** is composed of two complementary layers.
 
 ```mermaid
 flowchart LR
-    subgraph PI["TokenWise Policy Intelligence"]
+    subgraph PI["MomiHelm Policy Intelligence"]
         direction TB
         SPE["Structured Policy Engine\n(deterministic source of truth)"]
         PER["Policy Evidence Retrieval\n(RAG over policy documents)"]
@@ -106,7 +106,7 @@ Level 3 — Optional use-case / user exceptions
 approved specific exception
   → department override
     → organization default
-      → TokenWise safe default
+      → MomiHelm safe default
 ```
 
 A department **inherits** the organization policy automatically. Administrators configure
@@ -126,7 +126,7 @@ the HR local-only override → **external provider prohibited** for that request
 
 ```mermaid
 flowchart TB
-    SD["TokenWise safe default"] --> ORG["Organization defaults"]
+    SD["MomiHelm safe default"] --> ORG["Organization defaults"]
     ORG --> DEPT["Department overrides\n(HR / Support / Finance / Marketing)"]
     DEPT --> EXC["Use-case / user exceptions"]
     EXC --> EFF["Effective Policy (merged)"]
@@ -177,7 +177,7 @@ Recommended sections:
 
 ### 6.1 Effective Policy Preview (most important capability)
 
-Given an admin selection of **department + request type + sensitivity level**, TokenWise shows
+Given an admin selection of **department + request type + sensitivity level**, MomiHelm shows
 the **final merged policy** after inheritance and overrides, with the origin of each value.
 
 ```
@@ -196,7 +196,7 @@ auditable.
 
 ## 7. Policy document upload (optional, future)
 
-Document upload is **optional**. TokenWise must remain fully usable with **presets +
+Document upload is **optional**. MomiHelm must remain fully usable with **presets +
 structured settings + department overrides** even when no document has been uploaded.
 
 Intended future workflow:
@@ -383,7 +383,7 @@ Inspected at checkpoint `5682eea`. Findings are precise; **Policy RAG is not imp
 | What is placeholder? | `POST /policy/query`; any policy vector collection/seed; n8n call to `/policy/query` (never wired); retrieved-policy influence on decisions. |
 | Which naming is misleading? | `rag-cache-service` name implies broad RAG but only a semantic Q/A cache exists; `/policy/query` implies active retrieval but always returns empty; `policy_mode` can be misread as "policy from RAG" but is a 3-value config; `policy_triggered` (guardrails) is a governance-rule category, not a retrieved document. |
 
-**Explicit statement:** TokenWise does **not** currently implement Policy RAG. It implements a
+**Explicit statement:** MomiHelm does **not** currently implement Policy RAG. It implements a
 structured `policy_mode` configuration and hardcoded guardrail governance rules. `/policy/query`
 is a stub.
 

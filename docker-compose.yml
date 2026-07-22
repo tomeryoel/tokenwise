@@ -1,4 +1,4 @@
-# TokenWise core application stack.
+# MomiHelm core application stack.
 # Day 9 Langfuse runs through the opt-in docker-compose.langfuse.yml override.
 
 services:

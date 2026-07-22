@@ -1,4 +1,4 @@
-# TokenWise - API Contracts (v0, walking skeleton)
+# MomiHelm - API Contracts (v0, walking skeleton)
 
 These are the minimal contracts used by the Day 1-2 skeleton. Responses are mostly
 mocked. Fields are intentionally stable so real logic can be dropped in later without
@@ -101,7 +101,7 @@ embeddings and **ChromaDB** persistent storage.
 ### POST /cache/lookup
 Request:
 ```json
-{ "query": "How can TokenWise reduce LLM costs?", "dept_id": "support",
+{ "query": "How can MomiHelm reduce LLM costs?", "dept_id": "support",
   "task_type": "general", "threshold": 0.88, "contains_sensitive_data": false }
 ```
 Response on hit:
@@ -284,7 +284,7 @@ architecture; may be extracted to a dedicated gateway in a commercial version.
 
 Request:
 ```json
-{ "request_id": "req-123", "prompt": "How can TokenWise reduce LLM cost?",
+{ "request_id": "req-123", "prompt": "How can MomiHelm reduce LLM cost?",
   "selected_tier": "cheap", "fallback_tier": "balanced", "policy_mode": "balanced",
   "contains_sensitive_data": false, "require_local_model": false,
   "allow_external_model": true, "estimated_tokens": 20,
@@ -366,7 +366,7 @@ Returns credential-safe runtime and export status:
 ```
 
 ### GET /observability/traces/{request_id} (Day 9)
-Returns the local export record for one TokenWise request:
+Returns the local export record for one MomiHelm request:
 ```json
 {
   "request_id": "r-123",
@@ -398,7 +398,7 @@ Read-only n8n webhook proxies `GET /usage/summary` with CORS for the Dashboard.
 Cache miss (model path):
 ```json
 {
-  "answer": "This is a mock answer from TokenWise.",
+  "answer": "This is a mock answer from MomiHelm.",
   "receipt": {
     "guardrail_status": "passed",
     "output_guardrail_status": "passed",
@@ -420,7 +420,7 @@ Cache miss (model path):
 Cache hit (semantic cache path - optimizer and model skipped):
 ```json
 {
-  "answer": "This is a mock answer from TokenWise.",
+  "answer": "This is a mock answer from MomiHelm.",
   "receipt": {
     "guardrail_status": "passed",
     "output_guardrail_status": "passed",

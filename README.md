@@ -1,9 +1,9 @@
-# TokenWise
+# MomiHelm
 
 **Real-Time LLM Cost Optimization Gateway.**
 
-TokenWise is a middleware layer that sits between applications/users and LLM
-providers. Every AI request passes through TokenWise, which optimizes it before
+MomiHelm is a middleware layer that sits between applications/users and LLM
+providers. Every AI request passes through MomiHelm, which optimizes it before
 it reaches a model (guardrails, semantic cache, dynamic routing, compression),
 then reports the savings.
 
@@ -12,6 +12,10 @@ then reports the savings.
 > provider execution (Day 6)**, **usage DB + Dashboard metrics (Day 7)**,
 > **PyTorch image analysis (Day 8)**, and **privacy-safe Langfuse tracing (Day 9)**
 > are now real.
+
+> **Brand migration:** MomiHelm is the product name. Existing lowercase
+> `tokenwise` webhook paths, database filenames, Docker resources, environment
+> variables, and repository paths remain unchanged for backward compatibility.
 
 ## Architecture (four layers)
 
@@ -53,7 +57,7 @@ See [docs/architecture.md](docs/architecture.md) for details and
 
 ## Policy Intelligence
 
-TokenWise **Policy Intelligence** separates a deterministic **Structured Policy Engine**
+MomiHelm **Policy Intelligence** separates a deterministic **Structured Policy Engine**
 (source of truth for enforcement) from a non-authoritative **Policy Evidence Retrieval**
 layer (RAG over policy documents, used for explanation and audit only). Today only a
 minimal structured form exists: `policy_mode` (`conservative`/`balanced`/`aggressive`) is a
@@ -133,7 +137,7 @@ docker compose --env-file .env.langfuse -f docker-compose.yml -f docker-compose.
 
 This additionally starts Langfuse Web at http://localhost:3000 and its official
 self-hosted dependencies. Verify it with
-`GET http://localhost:3000/api/public/health`, then inspect TokenWise export state at
+`GET http://localhost:3000/api/public/health`, then inspect MomiHelm export state at
 `GET http://localhost:8004/observability/status`. Full setup, privacy guarantees,
 trace stages, and troubleshooting are in
 [docs/langfuse-observability.md](docs/langfuse-observability.md).
@@ -169,11 +173,10 @@ Returns `{ answer, receipt }` where `receipt` contains `guardrail_status`,
 ### 3. From the UI
 
 Open http://localhost:5173, type a prompt in **Playground**, pick a policy mode,
-click **Run with TokenWise**, and read the answer + Decision Receipt.
+click **Run with MomiHelm**, and read the answer + Decision Receipt.
 
-> If the n8n workflow is not imported/active yet, the UI shows a clearly-labelled
-> "temporary local mock" banner so it is still demonstrable. Import + activate the
-> workflow to exercise the real Layer 2 -> Layer 3 path.
+> If the n8n workflow is not imported or active, the UI reports the real pipeline
+> error and never invents a mock answer.
 
 ## Semantic cache (Day 4)
 
@@ -291,24 +294,24 @@ The exporter and its tests live under
 
 ## Offline AI evaluation (Ragas)
 
-TokenWise uses **[Ragas](https://docs.ragas.io) `0.4.3`** as an **offline**
+MomiHelm uses **[Ragas](https://docs.ragas.io) `0.4.3`** as an **offline**
 evaluation layer (lecturer requirement). It runs **real** Ragas metrics on
 **real** generated responses and saves reviewable artifacts. It is **not** in the
 real-time request path — Playground users never wait for Ragas.
 
-It compares an **un-optimized direct baseline** (Ollama, bypassing TokenWise)
-against the **real TokenWise n8n pipeline**, measuring whether TokenWise reduces
+It compares an **un-optimized direct baseline** (Ollama, bypassing MomiHelm)
+against the **real MomiHelm n8n pipeline**, measuring whether MomiHelm reduces
 modeled cost / tokens / unnecessary model calls while preserving answer quality.
 
 - Judge: local Ollama `llama3.1:latest` (via the OpenAI-compatible endpoint).
 - Embeddings: local `sentence-transformers/all-MiniLM-L6-v2`.
 - Metrics: Semantic Similarity, Response Relevancy, Factual Correctness, and a
-  custom TokenWise grounding rubric; plus the derived `quality_preservation_ratio`.
+  custom MomiHelm grounding rubric; plus the derived `quality_preservation_ratio`.
 - Ragas is **not** RAG, **not** the semantic cache, **not** Langfuse, and **not**
   the usage dashboard.
 
 ```powershell
-# from repo root, with the TokenWise stack up and Ollama running
+# from repo root, with the MomiHelm stack up and Ollama running
 evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation --env-check
 evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation --mode smoke
 evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation --mode full
@@ -322,7 +325,7 @@ for the canonical reviewed report.
 
 - Prompt compression is recommended only (not executed).
 - Vision-tier multimodal model execution (classification runs locally; provider
-  vision tier is not executed — TokenWise returns structured local analysis).
+  vision tier is not executed — MomiHelm returns structured local analysis).
 - Policy Intelligence runtime (Policy Center, Policy Evidence Retrieval,
   inheritance) is **documentation only** — `POST /policy/query` remains a
   placeholder returning `{"policies": []}`. See
@@ -331,7 +334,7 @@ for the canonical reviewed report.
 Real: guardrails (Day 3), semantic cache (Day 4), LangGraph optimizer (Day 5),
 Layer 4 provider execution (Day 6), usage DB + Dashboard (Day 7),
 PyTorch image analyser + Playground upload (Day 8), privacy-safe Langfuse tracing
-(Day 9), offline Ragas evaluation, TokenWise product-answer grounding.
+(Day 9), offline Ragas evaluation, MomiHelm product-answer grounding.
 
 ## Frontend without Docker (optional)
 

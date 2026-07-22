@@ -3,6 +3,7 @@ import type { PolicyMode } from "../types";
 import type { PlaygroundSession } from "../playgroundSession";
 import { runPrompt } from "../api";
 import DecisionReceipt from "../components/DecisionReceipt";
+import { PRODUCT_NAME } from "../brand";
 
 interface Props {
   policyMode: PolicyMode;
@@ -107,18 +108,20 @@ export default function Playground({
         </div>
 
         <button className="primary" type="submit" disabled={loading}>
-          {loading ? "Running..." : "Run with TokenWise"}
+          {loading ? "Running..." : `Run with ${PRODUCT_NAME}`}
         </button>
       </form>
 
       {loading && (
-        <div className="banner-info">Running request through TokenWise…</div>
+        <div className="banner-info">
+          Running request through {PRODUCT_NAME}...
+        </div>
       )}
 
       {error && (
         <div className="request-error" role="alert">
           <div>
-            <strong>TokenWise could not complete this request</strong>
+            <strong>{PRODUCT_NAME} could not complete this request</strong>
             <p>{error}</p>
             <small>
               No mock answer was generated.

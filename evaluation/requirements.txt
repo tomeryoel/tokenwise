@@ -1,4 +1,4 @@
-# TokenWise offline Ragas evaluation dependencies (isolated; NOT installed into
+# MomiHelm offline Ragas evaluation dependencies (isolated; NOT installed into
 # any production service container). Pinned to the exact versions validated on
 # Python 3.13 for reproducibility.
 #

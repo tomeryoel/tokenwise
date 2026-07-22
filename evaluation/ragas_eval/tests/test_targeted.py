@@ -21,7 +21,7 @@ def _case(**kwargs) -> EvalCase:
         case_id="tw-architecture-001",
         category="tokenwise_architecture",
         kind="answer_quality",
-        user_input="Explain how TokenWise chooses between a local model and an external model.",
+        user_input="Explain how MomiHelm chooses between a local model and an external model.",
         reference="Rule-based through LangGraph.",
         expected_behavior="answer",
         run_semantic_similarity=True,

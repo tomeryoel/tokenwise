@@ -1,4 +1,5 @@
 import type { DecisionReceipt, PolicyMode, RunResponse } from "./types";
+import { PRODUCT_NAME } from "./brand";
 
 const WEBHOOK_URL =
   import.meta.env.VITE_N8N_WEBHOOK_URL ??
@@ -43,7 +44,7 @@ export interface UsageSummary {
 }
 
 /**
- * Send a prompt through the TokenWise pipeline.
+ * Send a prompt through the branded optimization pipeline.
  *
  * POST to the n8n webhook (Layer 2), which orchestrates the FastAPI services
  * and returns { answer, receipt }. Pipeline failures are surfaced to the UI;
@@ -82,9 +83,9 @@ export async function runPrompt(
       body: JSON.stringify(requestPayload),
     });
   } catch (error) {
-    console.error("TokenWise could not reach the n8n workflow.", error);
+    console.error(`${PRODUCT_NAME} could not reach the n8n workflow.`, error);
     throw new Error(
-      "The TokenWise workflow could not be reached. Make sure the local services are running, then try again.",
+      `The ${PRODUCT_NAME} workflow could not be reached. Make sure the local services are running, then try again.`,
     );
   }
 
@@ -96,18 +97,18 @@ export async function runPrompt(
   try {
     data = await res.json();
   } catch (error) {
-    console.error("TokenWise received invalid JSON from n8n.", error);
+    console.error(`${PRODUCT_NAME} received invalid JSON from n8n.`, error);
     throw new Error(
-      "The TokenWise workflow returned an unreadable response. Check the n8n workflow output, then try again.",
+      `The ${PRODUCT_NAME} workflow returned an unreadable response. Check the n8n workflow output, then try again.`,
     );
   }
 
   // n8n may wrap the payload in an array; normalise both documented shapes.
   const responsePayload = Array.isArray(data) ? data[0] : data;
   if (!isRunResponsePayload(responsePayload)) {
-    console.error("TokenWise received an incomplete response from n8n.", data);
+    console.error(`${PRODUCT_NAME} received an incomplete response from n8n.`, data);
     throw new Error(
-      "The TokenWise workflow returned an incomplete response. It must include both an answer and a decision receipt.",
+      `The ${PRODUCT_NAME} workflow returned an incomplete response. It must include both an answer and a decision receipt.`,
     );
   }
 
@@ -128,7 +129,7 @@ export async function fetchUsageSummary(
   try {
     res = await fetch(`${USAGE_SUMMARY_URL}?${params.toString()}`);
   } catch (error) {
-    console.error("TokenWise could not reach the usage analytics workflow.", error);
+    console.error(`${PRODUCT_NAME} could not reach the usage analytics workflow.`, error);
     throw new Error(
       "The live usage analytics endpoint could not be reached. Make sure n8n and the optimizer service are running.",
     );
@@ -144,22 +145,22 @@ export async function fetchUsageSummary(
   try {
     return await res.json();
   } catch (error) {
-    console.error("TokenWise received invalid usage analytics JSON.", error);
+    console.error(`${PRODUCT_NAME} received invalid usage analytics JSON.`, error);
     throw new Error("The usage analytics workflow returned an unreadable response.");
   }
 }
 
 function httpFailureMessage(status: number): string {
   if (status === 404) {
-    return "The TokenWise workflow endpoint was not found (HTTP 404). Make sure the n8n workflow is imported and active, then try again.";
+    return `The ${PRODUCT_NAME} workflow endpoint was not found (HTTP 404). Make sure the n8n workflow is imported and active, then try again.`;
   }
   if ([502, 503, 504].includes(status)) {
-    return `The TokenWise workflow is temporarily unavailable (HTTP ${status}). Make sure n8n and its services are running, then try again.`;
+    return `The ${PRODUCT_NAME} workflow is temporarily unavailable (HTTP ${status}). Make sure n8n and its services are running, then try again.`;
   }
   if (status === 500) {
-    return "The TokenWise workflow failed or could not be reached (HTTP 500). Make sure n8n and its services are running, then check the n8n execution log and try again.";
+    return `The ${PRODUCT_NAME} workflow failed or could not be reached (HTTP 500). Make sure n8n and its services are running, then check the n8n execution log and try again.`;
   }
-  return `The TokenWise workflow could not complete the request (HTTP ${status}). Check the n8n execution log, then try again.`;
+  return `The ${PRODUCT_NAME} workflow could not complete the request (HTTP ${status}). Check the n8n execution log, then try again.`;
 }
 
 function isRunResponsePayload(value: unknown): value is RunResponse {

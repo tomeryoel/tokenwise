@@ -1,4 +1,5 @@
 import type { PolicyMode } from "./types";
+import { PRODUCT_NAME } from "./brand";
 
 const STORAGE_KEY = "tokenwise.policy-mode";
 const DEFAULT_POLICY_MODE: PolicyMode = "balanced";
@@ -20,7 +21,7 @@ export function loadPolicyPreference(): PolicyPreference {
       persistenceAvailable: true,
     };
   } catch (error) {
-    console.warn("TokenWise could not read the saved policy preference.", error);
+    console.warn(`${PRODUCT_NAME} could not read the saved policy preference.`, error);
     return { mode: DEFAULT_POLICY_MODE, persistenceAvailable: false };
   }
 }
@@ -30,7 +31,7 @@ export function savePolicyPreference(mode: PolicyMode): boolean {
     window.localStorage.setItem(STORAGE_KEY, mode);
     return true;
   } catch (error) {
-    console.warn("TokenWise could not save the policy preference.", error);
+    console.warn(`${PRODUCT_NAME} could not save the policy preference.`, error);
     return false;
   }
 }
