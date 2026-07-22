@@ -30,6 +30,7 @@ class UsageLogRequest(BaseModel):
     used_fallback: bool = False
     fallback_reason: str | None = None
     privacy_enforced: bool = False
+    prompt_redaction_applied: bool = False
     actual_execution_attempt_count: int = 0
     savings_source: str = "unknown"
     savings_reason: str | None = None
@@ -45,6 +46,11 @@ class UsageLogResponse(BaseModel):
     logged: bool
     request_id: str
     duplicate: bool = False
+    tracing_enabled: bool = False
+    trace_exported: bool = False
+    trace_id: str | None = None
+    trace_url: str | None = None
+    trace_error: str | None = None
 
 
 class UsageSummaryResponse(BaseModel):

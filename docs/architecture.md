@@ -1,9 +1,9 @@
-# TokenWise - Architecture (Walking Skeleton, Day 1-2)
+# TokenWise - Architecture
 
 TokenWise is a real-time LLM cost-optimization gateway. Every AI request passes
 through TokenWise, which optimizes it before it reaches a model, then reports the
-savings. This document shows the four-layer architecture that the Day 1-2 walking
-skeleton wires together end-to-end (with mocked logic inside each layer).
+savings. This document shows the four-layer architecture and the optional Day 9
+observability stack wired around the real end-to-end request path.
 
 ## Four-layer architecture
 
@@ -35,8 +35,9 @@ flowchart TB
         OPENAI["OpenAI (optional)"]
     end
 
-    subgraph X [Cross-cutting - placeholder only]
-        LF["Langfuse (not implemented yet)"]
+    subgraph X [Cross-cutting - optional observability]
+        LF["Langfuse
+        privacy-safe traces"]
     end
 
     UI -->|"POST webhook (prompt, policy_mode)"| N8N
@@ -47,7 +48,7 @@ flowchart TB
     OPT --> OLLAMA
     OPT -. "when configured" .-> OPENAI
     N8N -->|"answer + Decision Receipt"| UI
-    N8N -. "traces (later)" .-> LF
+    OPT -. "terminal trace after /usage/log" .-> LF
 ```
 
 ## Request flow (with real guardrails + semantic cache)
@@ -59,19 +60,20 @@ sequenceDiagram
     participant G as guardrails-service
     participant C as rag-cache-service
     participant O as optimizer-service
+    participant L as Langfuse
 
     UI->>N: POST /webhook/tokenwise {prompt, policy_mode, dept_id}
     N->>N: Normalize request
     N->>G: POST /check/input
     alt input blocked
         G-->>N: {pass:false, reason}
-        N-->>UI: blocked answer + receipt (short-circuit)
+        N->>N: Prepare blocked response
     else input passed
         N->>C: POST /cache/lookup (dept_id filtered)
         alt cache hit (confidence >= threshold)
             C-->>N: {hit:true, confidence, answer, entry_id}
             N->>G: POST /check/output (cached answer)
-            N-->>UI: cached answer + receipt (savings_source=semantic_cache)
+            N->>N: Prepare cached response
         else cache miss
             C-->>N: {hit:false, confidence}
             N->>O: POST /agent/run
@@ -80,9 +82,14 @@ sequenceDiagram
             O-->>N: real answer + usage metadata
             N->>G: POST /check/output (model answer)
             N->>C: POST /cache/store (best-effort, safe answer)
-            N-->>UI: answer + receipt (savings_source=model_routing)
+            N->>N: Prepare model response
         end
     end
+    N->>O: POST /usage/log (terminal facts)
+    O->>O: Persist SQLite usage + export status
+    O-->>L: Export fingerprint + structured spans
+    O-->>N: logged + trace status (fail-open)
+    N-->>UI: answer + Decision Receipt
 ```
 
 ## Optimizer LangGraph (Day 5 + Day 5.1 conditional graph)
@@ -163,6 +170,33 @@ append reducer). Skipped branches never appear in `executed_nodes`.
   never negative. `optimization_plan`, `decision_reasons`, `graph_path`,
   `branch_reason` and `executed_nodes` are surfaced in the Decision Receipt.
 
+## Langfuse observability (Day 9)
+
+Langfuse is an optional cross-cutting deployment, not a fifth application service.
+The existing four FastAPI service architecture remains unchanged. The
+optimizer-service exports from the common terminal `POST /usage/log` boundary, so
+all n8n paths are covered without duplicating tracing logic across workflow branches.
+
+```mermaid
+flowchart LR
+    N["n8n terminal path"] -->|"POST /usage/log"| U["Usage repository"]
+    U -->|"persist first"| DB[("SQLite usage_data")]
+    U --> E["LangfuseTraceExporter"]
+    E -->|"deterministic trace_id(request_id)"| LF["Langfuse"]
+    E -->|"attempt status"| DB
+    E -. "failure is fail-open" .-> N
+```
+
+Each trace has a `tokenwise_request` root and only the child observations that
+actually ran: input guardrail, semantic cache lookup, image analysis, optimizer,
+provider generation, output guardrail, cache store, and usage log. The exporter
+never sends raw prompts or answers. It sends a SHA-256 prompt fingerprint plus
+structured routing, privacy, token, cost, latency, fallback, and savings metadata.
+
+The `observability_exports` SQLite table makes export idempotent per `request_id`,
+records failed attempts, and allows a later retry. Setup and operations are detailed
+in [langfuse-observability.md](langfuse-observability.md).
+
 ## What is real vs mocked in this step
 
 | Layer / concern | Status in skeleton |
@@ -181,13 +215,12 @@ append reducer). Skipped branches never appear in `executed_nodes`.
 | Structured policy (`policy_mode` config) | Real (config enum drives compression thresholds + tier selection) |
 | Policy Evidence Retrieval (`/policy/query`) | Placeholder (returns `{"policies": []}`; not wired into n8n) |
 | Ragas AI evaluation | Real, **offline** (Ragas 0.4.3; local Ollama judge + local MiniLM embeddings; not in the request path) |
+| Langfuse tracing | Real, optional Day 9 stack; privacy-safe terminal traces with idempotent export status |
 
 **Provider execution limit:** at most **two actual HTTP model calls** per request
 (one primary, one fallback). Skipped OpenAI configuration checks appear in
 `attempts` with `executed=false` and `attempt_role=configuration_check`; they are
 not counted in `actual_execution_attempt_count`.
-
-| Langfuse tracing | Placeholder only |
 
 ## Offline AI evaluation (Ragas)
 

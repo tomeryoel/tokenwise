@@ -9,8 +9,9 @@ then reports the savings.
 
 > **Status:** four-layer end-to-end path is working. **Guardrails (Day 3)**,
 > **semantic cache (Day 4)**, **LangGraph optimizer (Day 5)**, **Layer 4
-> provider execution (Day 6)**, and **usage DB + Dashboard metrics (Day 7)** are
-> now real. PyTorch training and Langfuse tracing remain for later phases.
+> provider execution (Day 6)**, **usage DB + Dashboard metrics (Day 7)**,
+> **PyTorch image analysis (Day 8)**, and **privacy-safe Langfuse tracing (Day 9)**
+> are now real.
 
 ## Architecture (four layers)
 
@@ -32,6 +33,9 @@ flowchart TB
         OLLAMA["Ollama local"]
         OPENAI["OpenAI optional"]
     end
+    subgraph OBS [Optional observability]
+        LF["Langfuse :3000"]
+    end
 
     UI -->|POST webhook| N8N
     N8N --> GR
@@ -40,6 +44,7 @@ flowchart TB
     N8N -. later .-> IMG
     OPT --> OLLAMA
     OPT -. when configured .-> OPENAI
+    OPT -. privacy-safe terminal trace .-> LF
     N8N -->|answer + Decision Receipt| UI
 ```
 
@@ -62,15 +67,18 @@ preview, document ingestion + approval, MVP scope, and commercial roadmap) is sp
 
 ```
 tokenwise/
-  docker-compose.yml          # runs everything
+  docker-compose.yml          # core application stack
+  docker-compose.langfuse.yml # optional self-hosted Langfuse override
+  .env.langfuse.example       # placeholder-only Langfuse configuration
   README.md
   docs/architecture.md        # diagrams + what is real vs mocked
+  docs/langfuse-observability.md # Day 9 setup, privacy, and operations
   contracts/api-contracts.md  # API contracts (v0)
   services/
     guardrails-service/       # FastAPI: /health /check/input /check/output
     rag-cache-service/        # FastAPI: /health /cache/lookup /cache/store /policy/query
     image-analyser-service/   # FastAPI: /health /analyse
-    optimizer-service/        # FastAPI: /health /agent/run /providers/* /usage/*
+    optimizer-service/        # FastAPI: /agent/run /providers/* /usage/* /observability/*
   n8n/
     tokenwise-skeleton.workflow.json  # import into n8n
     README.md                          # n8n setup instructions
@@ -83,7 +91,7 @@ tokenwise/
 - That's it for the docker path. (Node.js only needed if you run the frontend
   outside Docker.)
 
-## Run everything (PowerShell)
+## Run the core stack (PowerShell)
 
 From the repository root:
 
@@ -104,6 +112,31 @@ This starts:
 
 Then import + activate the n8n workflow (one-time) as described in
 [n8n/README.md](n8n/README.md).
+
+## Add Langfuse observability (Day 9, optional)
+
+The core command above remains lightweight. To add the self-hosted Langfuse stack,
+create an ignored local environment file from the placeholder-only example, replace
+every `CHANGE_ME` value, and start both Compose files:
+
+```powershell
+Copy-Item .env.langfuse.example .env.langfuse
+docker compose --env-file .env.langfuse -f docker-compose.yml -f docker-compose.langfuse.yml up -d --build
+```
+
+macOS/Linux equivalent:
+
+```bash
+cp .env.langfuse.example .env.langfuse
+docker compose --env-file .env.langfuse -f docker-compose.yml -f docker-compose.langfuse.yml up -d --build
+```
+
+This additionally starts Langfuse Web at http://localhost:3000 and its official
+self-hosted dependencies. Verify it with
+`GET http://localhost:3000/api/public/health`, then inspect TokenWise export state at
+`GET http://localhost:8004/observability/status`. Full setup, privacy guarantees,
+trace stages, and troubleshooting are in
+[docs/langfuse-observability.md](docs/langfuse-observability.md).
 
 ## Test it
 
@@ -228,6 +261,25 @@ cost is not yet modeled.
 
 Development reset (optional): `python -m usage.reset_db --force`
 
+## Langfuse observability (Day 9)
+
+Every terminal n8n path already calls `POST /usage/log`. After SQLite persistence,
+the optimizer-service exports one deterministic Langfuse trace for that `request_id`.
+The trace contains only structured routing, guardrail, cache, provider, token, cost,
+latency, and savings facts. Raw prompts and generated answers are never exported.
+
+- Tracing is opt-in through `docker-compose.langfuse.yml` and `.env.langfuse`.
+- Export is idempotent per `request_id`; failures are recorded and retried on a later call.
+- Observability is fail-open: SQLite logging and the user response still succeed if
+  Langfuse is unavailable.
+- `GET /observability/status` reports configuration and aggregate export state.
+- `GET /observability/traces/{request_id}` reports the trace ID, URL, attempts, and
+  last error without exposing credentials or prompt content.
+
+The exporter and its tests live under
+`services/optimizer-service/observability/` and
+`services/optimizer-service/test_observability.py`.
+
 ## Offline AI evaluation (Ragas)
 
 TokenWise uses **[Ragas](https://docs.ragas.io) `0.4.3`** as an **offline**
@@ -259,7 +311,6 @@ for the canonical reviewed report.
 
 ## What is still mocked
 
-- Langfuse is a commented placeholder in docker-compose.
 - Prompt compression is recommended only (not executed).
 - Vision-tier multimodal model execution (classification runs locally; provider
   vision tier is not executed — TokenWise returns structured local analysis).
@@ -270,8 +321,8 @@ for the canonical reviewed report.
 
 Real: guardrails (Day 3), semantic cache (Day 4), LangGraph optimizer (Day 5),
 Layer 4 provider execution (Day 6), usage DB + Dashboard (Day 7),
-PyTorch image analyser + Playground upload (Day 8), offline Ragas evaluation,
-TokenWise product-answer grounding.
+PyTorch image analyser + Playground upload (Day 8), privacy-safe Langfuse tracing
+(Day 9), offline Ragas evaluation, TokenWise product-answer grounding.
 
 ## Frontend without Docker (optional)
 

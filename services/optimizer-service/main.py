@@ -1,10 +1,11 @@
-"""optimizer-service (Day 5: LangGraph + Day 6: Layer 4 + Day 7: Usage DB).
+"""optimizer-service (LangGraph, providers, usage DB, and Langfuse export).
 
 Responsibilities behind separate endpoints/modules:
 
 1. POST /agent/run  - LangGraph Optimization Plan (graph.py)
 2. POST /providers/execute - Layer 4 model provider execution (providers/)
 3. POST /usage/log, GET /usage/summary, GET /usage/recent - usage persistence (usage/)
+4. GET /observability/* - Day 9 Langfuse status and trace lookup (observability/)
 
 Provider and usage modules are packaged inside optimizer-service as an MVP
 decision to preserve the lecturer-required four FastAPI microservices.
@@ -15,6 +16,9 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from graph import run_optimizer
+from observability.exporter import get_trace_exporter
+from observability.repository import get_export_counts, get_export_record, record_export_attempt
+from observability.schemas import ObservabilityStatusResponse, TraceStatusResponse
 from providers.executor import execute_provider
 from providers.ollama_provider import OllamaProvider
 from providers.openai_provider import OpenAIProvider
@@ -30,7 +34,11 @@ SERVICE_NAME = "optimizer-service"
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
-    yield
+    exporter = get_trace_exporter()
+    try:
+        yield
+    finally:
+        exporter.shutdown()
 
 
 app = FastAPI(title=SERVICE_NAME, lifespan=lifespan)
@@ -130,7 +138,85 @@ async def providers_execute(req: ProviderExecuteRequest):
 
 @app.post("/usage/log", response_model=UsageLogResponse)
 def usage_log(req: UsageLogRequest):
-    return log_usage(req)
+    usage_result = log_usage(req)
+    exporter = get_trace_exporter()
+
+    def response_with_trace(**updates) -> UsageLogResponse:
+        data = usage_result.model_dump()
+        data.update(updates)
+        return UsageLogResponse(**data)
+
+    try:
+        existing = get_export_record(req.request_id)
+        if existing and existing.exported:
+            return response_with_trace(
+                tracing_enabled=exporter.config.requested_enabled,
+                trace_exported=True,
+                trace_id=existing.trace_id,
+                trace_url=exporter.config.browser_trace_url(existing.trace_url),
+            )
+
+        trace_result = exporter.export_usage(req)
+        if trace_result.attempted:
+            record_export_attempt(
+                req.request_id,
+                trace_id=trace_result.trace_id,
+                trace_url=trace_result.trace_url,
+                exported=trace_result.exported,
+                error=trace_result.error,
+            )
+
+        return response_with_trace(
+            tracing_enabled=trace_result.tracing_enabled,
+            trace_exported=trace_result.exported,
+            trace_id=trace_result.trace_id,
+            trace_url=trace_result.trace_url,
+            trace_error=trace_result.error,
+        )
+    except Exception as exc:
+        # Usage persistence is the source of truth; observability is fail-open.
+        return response_with_trace(
+            tracing_enabled=exporter.config.requested_enabled,
+            trace_error=str(exc)[:500],
+        )
+
+
+@app.get("/observability/status", response_model=ObservabilityStatusResponse)
+def observability_status():
+    exporter = get_trace_exporter()
+    counts = get_export_counts()
+    config = exporter.config
+    return ObservabilityStatusResponse(
+        requested_enabled=config.requested_enabled,
+        configured=config.configured,
+        active=config.active,
+        client_ready=exporter.client_ready,
+        base_url=config.base_url,
+        public_url=config.public_url or config.base_url,
+        environment=config.environment,
+        release=config.release,
+        exported_traces=counts["exported"],
+        failed_exports=counts["failed"],
+        pending_exports=counts["pending"],
+        initialization_error=exporter.initialization_error,
+    )
+
+
+@app.get("/observability/traces/{request_id}", response_model=TraceStatusResponse)
+def observability_trace_status(request_id: str):
+    record = get_export_record(request_id)
+    if record is None:
+        return TraceStatusResponse(request_id=request_id, found=False)
+    exporter = get_trace_exporter()
+    return TraceStatusResponse(
+        request_id=request_id,
+        found=True,
+        exported=record.exported,
+        attempt_count=record.attempt_count,
+        trace_id=record.trace_id,
+        trace_url=exporter.config.browser_trace_url(record.trace_url),
+        last_error=record.last_error,
+    )
 
 
 @app.get("/usage/summary", response_model=UsageSummaryResponse)

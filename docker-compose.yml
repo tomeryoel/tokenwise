@@ -1,6 +1,5 @@
-# TokenWise - walking skeleton (Day 1-2)
-# Brings up: 4 FastAPI services, n8n orchestrator, React UI.
-# Langfuse is intentionally left as a commented placeholder (Day 9).
+# TokenWise core application stack.
+# Day 9 Langfuse runs through the opt-in docker-compose.langfuse.yml override.
 
 services:
   guardrails-service:
@@ -128,14 +127,6 @@ services:
     depends_on:
       - n8n
       - optimizer-service
-
-  # --- Langfuse placeholder (NOT enabled in the skeleton) ---------------------
-  # Langfuse v3 needs Postgres + ClickHouse + Redis, which is too heavy for the
-  # skeleton. It will be added on Day 9. Left here as documentation only.
-  # langfuse:
-  #   image: langfuse/langfuse:latest
-  #   ports:
-  #     - "3000:3000"
 
 volumes:
   n8n_data:

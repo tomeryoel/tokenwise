@@ -114,7 +114,8 @@ The quality gate **did not pass**. TokenWise quality preservation is NOT claimed
 - The PyTorch Image Analyser is not yet active; image requests are not evaluated.
 - Policy Intelligence runtime is not implemented; POST /policy/query is a placeholder.
 - No full RAG retrieved_contexts are used in generation; the Semantic Cache is NOT RAG.
-- Langfuse tracing is not implemented yet.
+- At evaluation time Langfuse tracing was not implemented; Day 9 added it later and
+  it did not affect these preserved results.
 - Results demonstrate an academic MVP, not production-grade assurance.
 
 ## Evidence-based conclusion

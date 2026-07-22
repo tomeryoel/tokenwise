@@ -313,13 +313,68 @@ are skipped candidates, not model calls.
 Ollama actual_cost=0 (local_zero_api_cost). Unknown paid models → actual_cost=null,
 cost_calculation_status=pricing_not_configured.
 
-### POST /usage/log (Day 7: idempotent usage persistence)
+### POST /usage/log (Day 7 persistence + Day 9 observability)
 Logs a terminal request outcome. Computes `prompt_fingerprint` server-side (SHA-256
-of normalized prompt). Does not store raw prompt text.
+of normalized prompt). Does not store raw prompt text. When Langfuse is enabled,
+the same privacy-safe fingerprint and structured terminal facts are exported after
+SQLite persistence; raw prompt and answer content are never exported.
 
-Idempotency: `request_id` is unique; retries upsert the same row (no duplicates).
+Idempotency: `request_id` is unique; retries upsert the same usage row and reuse an
+already-exported deterministic trace instead of creating a second trace.
 
-Response: `{ "logged": true, "request_id": "...", "duplicate": false }`
+Response:
+```json
+{
+  "logged": true,
+  "request_id": "r-123",
+  "duplicate": false,
+  "tracing_enabled": true,
+  "trace_exported": true,
+  "trace_id": "5c37123a76aa98d3346f7da5f22b9e5a",
+  "trace_url": "http://langfuse-web:3000/project/tokenwise-project/traces/...",
+  "trace_error": null
+}
+```
+
+Tracing is fail-open. If Langfuse is disabled, incomplete, or temporarily
+unavailable, usage persistence still succeeds and the response reports
+`trace_exported=false` with a bounded diagnostic in `trace_error` when applicable.
+
+### GET /observability/status (Day 9)
+Returns credential-safe runtime and export status:
+```json
+{
+  "requested_enabled": true,
+  "configured": true,
+  "active": true,
+  "client_ready": true,
+  "base_url": "http://langfuse-web:3000",
+  "public_url": "http://localhost:3000",
+  "environment": "development",
+  "release": "tokenwise-day-9",
+  "exported_traces": 2,
+  "failed_exports": 0,
+  "pending_exports": 0,
+  "initialization_error": null
+}
+```
+
+### GET /observability/traces/{request_id} (Day 9)
+Returns the local export record for one TokenWise request:
+```json
+{
+  "request_id": "r-123",
+  "found": true,
+  "exported": true,
+  "attempt_count": 1,
+  "trace_id": "5c37123a76aa98d3346f7da5f22b9e5a",
+  "trace_url": "http://langfuse-web:3000/project/tokenwise-project/traces/...",
+  "last_error": null
+}
+```
+
+Unknown request IDs return HTTP 200 with `found=false`. Neither observability
+endpoint exposes API keys, prompts, answers, PII, or secrets.
 
 ### GET /usage/summary?period_days=30&dept_id=optional
 Returns aggregated metrics. Primary savings per request uses `actual_cost_saved`

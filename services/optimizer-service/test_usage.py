@@ -90,6 +90,7 @@ def test_database_initialization(tmp_db):
     assert "model_executions" in tables
     assert "optimization_actions" in tables
     assert "output_guardrail_results" in tables
+    assert "observability_exports" in tables
 
 
 def test_request_logging(tmp_db):

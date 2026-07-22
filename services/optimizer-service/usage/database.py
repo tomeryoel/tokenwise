@@ -69,8 +69,21 @@ CREATE TABLE IF NOT EXISTS output_guardrail_results (
     FOREIGN KEY (request_id) REFERENCES requests(request_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS observability_exports (
+    request_id TEXT PRIMARY KEY,
+    trace_id TEXT,
+    trace_url TEXT,
+    exported INTEGER NOT NULL DEFAULT 0,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    exported_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (request_id) REFERENCES requests(request_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_requests_created_at ON requests(created_at);
 CREATE INDEX IF NOT EXISTS idx_requests_dept_id ON requests(dept_id);
+CREATE INDEX IF NOT EXISTS idx_observability_exported ON observability_exports(exported);
 """
 
 
