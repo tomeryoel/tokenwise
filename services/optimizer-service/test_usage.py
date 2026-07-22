@@ -5,7 +5,9 @@ import sqlite3
 import tempfile
 
 import pytest
+from pydantic import ValidationError
 
+from main import AgentRunRequest, agent_run
 from usage.analytics import get_recent, get_summary
 from usage.database import init_db
 from usage.repository import log_usage, prompt_fingerprint
@@ -54,6 +56,7 @@ def sample_logs(tmp_db):
     log_usage(UsageLogRequest(
         request_id="r-cache",
         dept_id="support",
+        policy_mode="conservative",
         prompt="cached query",
         cache_status="hit",
         status="completed",
@@ -68,6 +71,7 @@ def sample_logs(tmp_db):
     log_usage(UsageLogRequest(
         request_id="r-block",
         dept_id="sales",
+        policy_mode="aggressive",
         prompt="off topic",
         guardrail_status="blocked",
         cache_status="skipped",
@@ -164,7 +168,15 @@ def test_nullable_actual_cost(tmp_db):
 def test_summary_totals(sample_logs):
     s = get_summary(period_days=30, db_path=sample_logs)
     assert s.total_requests == 3
-    assert s.total_savings > 0
+    assert s.total_savings == pytest.approx(0.0018)
+    assert s.total_modeled_cost_avoidance == s.total_savings
+    assert s.total_actual_api_cost == s.total_actual_cost == 0
+    assert s.total_estimated_baseline_cost == pytest.approx(0.0018)
+    assert s.total_estimated_optimized_cost == 0
+    assert s.actual_cost_savings_request_count == 1
+    assert s.estimated_savings_request_count == 2
+    assert s.unknown_actual_cost_request_count == 0
+    assert s.cost_avoidance_basis == "actual_api_cost_when_available_else_estimated_cost"
 
 
 def test_cache_hit_rate(sample_logs):
@@ -183,6 +195,18 @@ def test_savings_by_source(sample_logs):
     assert s.savings_by_source.get("semantic_cache", 0) > 0
 
 
+def test_policy_mode_breakdowns(sample_logs):
+    s = get_summary(period_days=30, db_path=sample_logs)
+    assert s.requests_by_policy_mode == {
+        "conservative": 1,
+        "balanced": 1,
+        "aggressive": 1,
+    }
+    assert s.savings_by_policy_mode["balanced"] == pytest.approx(0.001)
+    assert s.savings_by_policy_mode["conservative"] == pytest.approx(0.0005)
+    assert s.savings_by_policy_mode["aggressive"] == pytest.approx(0.0003)
+
+
 def test_department_filtering(sample_logs):
     s = get_summary(period_days=30, dept_id="sales", db_path=sample_logs)
     assert s.total_requests == 1
@@ -194,6 +218,15 @@ def test_recent_excludes_prompts(sample_logs):
     assert "reset password" not in dumped
     assert "cached query" not in dumped
     assert recent.count == 3
+    assert {item.policy_mode for item in recent.items} == {
+        "conservative",
+        "balanced",
+        "aggressive",
+    }
+    assert {item.savings_basis for item in recent.items} == {
+        "actual_api_cost",
+        "estimated_cost",
+    }
 
 
 def test_prompt_fingerprint_deterministic():
@@ -241,4 +274,114 @@ def test_roi_not_falsely_calculated(sample_logs):
     s = get_summary(period_days=30, db_path=sample_logs)
     assert s.roi_percentage is None
     assert s.roi_status == "operating_cost_not_modeled"
+    assert s.roi_basis == "not_calculated"
+    assert s.operating_cost_usd is None
     assert s.savings_percentage is not None
+
+
+def test_roi_uses_explicit_operating_cost(sample_logs):
+    s = get_summary(
+        period_days=30,
+        operating_cost_usd=0.001,
+        db_path=sample_logs,
+    )
+    assert s.operating_cost_usd == 0.001
+    assert s.roi_percentage == pytest.approx(80.0)
+    assert s.roi_status == "calculated_from_supplied_operating_cost"
+    assert s.roi_basis == "modeled_cost_avoidance_minus_supplied_operating_cost"
+
+
+@pytest.mark.parametrize("operating_cost", [0, -1, float("nan"), float("inf")])
+def test_roi_rejects_invalid_operating_cost(sample_logs, operating_cost):
+    with pytest.raises(ValueError, match="finite and greater than zero"):
+        get_summary(
+            period_days=30,
+            operating_cost_usd=operating_cost,
+            db_path=sample_logs,
+        )
+
+
+def test_premium_usage_counts_execution_separately(tmp_db):
+    log_usage(UsageLogRequest(
+        request_id="r-premium-request",
+        provider="ollama",
+        requested_tier="premium",
+        executed_tier="cheap",
+        actual_cost=0,
+        actual_execution_attempt_count=1,
+    ), db_path=tmp_db)
+    summary = get_summary(period_days=30, db_path=tmp_db)
+    assert summary.premium_usage_rate == 0
+    assert summary.premium_requested_rate == 1
+
+
+def test_unknown_actual_cost_counts_real_executions_only(tmp_db):
+    log_usage(UsageLogRequest(
+        request_id="r-unknown-cost",
+        provider="openai",
+        requested_tier="balanced",
+        executed_tier="balanced",
+        actual_execution_attempt_count=1,
+        actual_cost=None,
+    ), db_path=tmp_db)
+    log_usage(UsageLogRequest(
+        request_id="r-no-execution",
+        provider="not called — semantic cache",
+        requested_tier="cache",
+        executed_tier="cache",
+    ), db_path=tmp_db)
+    summary = get_summary(period_days=30, db_path=tmp_db)
+    assert summary.unknown_actual_cost_request_count == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("actual_input_tokens", -1),
+        ("actual_output_tokens", -1),
+        ("actual_total_tokens", -1),
+        ("actual_cost", -0.01),
+        ("latency_ms", -1),
+        ("estimated_baseline_cost", -0.01),
+        ("estimated_optimized_cost", -0.01),
+        ("estimated_savings", -0.01),
+        ("actual_cost_saved", -0.01),
+    ],
+)
+def test_usage_log_rejects_negative_metrics(field, value):
+    with pytest.raises(ValidationError):
+        UsageLogRequest(request_id="r-invalid", **{field: value})
+
+
+def test_usage_log_rejects_invalid_policy_mode():
+    with pytest.raises(ValidationError):
+        UsageLogRequest(request_id="r-invalid", policy_mode="banana")
+
+
+def test_usage_log_canonicalizes_policy_mode():
+    req = UsageLogRequest(request_id="r-valid", policy_mode=" Aggressive ")
+    assert req.policy_mode == "aggressive"
+
+
+def test_usage_log_rejects_inconsistent_token_total():
+    with pytest.raises(ValidationError, match="must equal input plus output"):
+        UsageLogRequest(
+            request_id="r-token-mismatch",
+            actual_input_tokens=2,
+            actual_output_tokens=3,
+            actual_total_tokens=4,
+        )
+
+
+def test_agent_request_rejects_invalid_inputs():
+    with pytest.raises(ValidationError):
+        AgentRunRequest(policy_mode="banana")
+    with pytest.raises(ValidationError):
+        AgentRunRequest(estimated_tokens=-1)
+    with pytest.raises(ValidationError):
+        AgentRunRequest(max_cost=-1)
+
+
+def test_agent_response_exposes_canonical_policy_mode():
+    response = agent_run(AgentRunRequest(prompt="Explain input validation.", policy_mode="Conservative"))
+    assert response["policy_mode"] == "conservative"

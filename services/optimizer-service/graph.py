@@ -24,6 +24,8 @@ from typing import Annotated, Any, Optional, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from policy import normalize_policy_mode
+
 # --------------------------------------------------------------------------- #
 # Static pricing (USD per 1k tokens). Deterministic, easy to explain.
 # local is near-zero (small self-host infra estimate); cache/reject cost nothing.
@@ -152,9 +154,7 @@ def _compression_thresholds(mode: str) -> tuple[int, int]:
 # --------------------------------------------------------------------------- #
 def normalize_inputs(state: OptimizerState) -> dict[str, Any]:
     prompt = state.get("prompt") or ""
-    mode = (state.get("policy_mode") or "balanced").lower()
-    if mode not in {"conservative", "balanced", "aggressive"}:
-        mode = "balanced"
+    mode = normalize_policy_mode(state.get("policy_mode"))
     tokens = state.get("estimated_tokens")
     if not tokens or tokens <= 0:
         tokens = estimate_tokens_from_prompt(prompt)

@@ -14,20 +14,32 @@ export interface UsageSummary {
   completed_requests: number;
   blocked_requests: number;
   total_actual_cost: number;
+  total_actual_api_cost: number;
   total_estimated_baseline_cost: number;
+  total_estimated_optimized_cost: number;
   total_savings: number;
+  total_modeled_cost_avoidance: number;
+  cost_avoidance_basis: string;
+  actual_cost_savings_request_count: number;
+  estimated_savings_request_count: number;
+  unknown_actual_cost_request_count: number;
   savings_percentage: number | null;
+  operating_cost_usd: number | null;
   roi_percentage: number | null;
   roi_status: string;
+  roi_basis: string;
   cache_hit_rate: number;
   guardrail_block_rate: number;
   premium_usage_rate: number;
+  premium_requested_rate: number;
   fallback_rate: number;
   average_latency_ms: number;
   total_input_tokens: number;
   total_output_tokens: number;
   requests_by_source: Record<string, number>;
   savings_by_source: Record<string, number>;
+  requests_by_policy_mode: Record<string, number>;
+  savings_by_policy_mode: Record<string, number>;
 }
 
 /**
@@ -89,9 +101,13 @@ export async function runPrompt(
 export async function fetchUsageSummary(
   deptId?: string,
   periodDays = 30,
+  operatingCostUsd?: number,
 ): Promise<UsageSummary> {
   const params = new URLSearchParams({ period_days: String(periodDays) });
   if (deptId) params.set("dept_id", deptId);
+  if (operatingCostUsd != null) {
+    params.set("operating_cost_usd", String(operatingCostUsd));
+  }
   const res = await fetch(`${USAGE_SUMMARY_URL}?${params.toString()}`);
   if (!res.ok) throw new Error(`usage summary returned ${res.status}`);
   return res.json();

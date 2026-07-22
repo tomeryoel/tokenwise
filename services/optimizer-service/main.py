@@ -14,11 +14,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, field_validator
 
 from graph import run_optimizer
 from observability.exporter import get_trace_exporter
 from observability.repository import get_export_counts, get_export_record, record_export_attempt
 from observability.schemas import ObservabilityStatusResponse, TraceStatusResponse
+from policy import PolicyMode, canonicalize_policy_mode
 from providers.executor import execute_provider
 from providers.ollama_provider import OllamaProvider
 from providers.openai_provider import OpenAIProvider
@@ -51,28 +53,29 @@ app.add_middleware(
 )
 
 
-# Re-use AgentRunRequest from existing main - import inline to avoid circular deps
-from pydantic import BaseModel  # noqa: E402
-
-
 class AgentRunRequest(BaseModel):
-    request_id: str | None = None
+    request_id: str | None = Field(default=None, min_length=1, max_length=200)
     prompt: str = ""
-    policy_mode: str = "balanced"
+    policy_mode: PolicyMode = "balanced"
     guardrail_status: str = "passed"
     guardrail_reason: str = ""
     cache_status: str = "miss"
-    cache_confidence: float = 0.0
+    cache_confidence: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
     contains_sensitive_data: bool = False
     require_local_model: bool = False
     allow_external_model: bool = True
-    estimated_tokens: int = 0
+    estimated_tokens: int = Field(default=0, ge=0)
     quality_requirement: str = ""
     latency_requirement: str = "normal"
     has_image: bool = False
     image_class: str = ""
-    image_complexity: float = 0.0
-    max_cost: float | None = None
+    image_complexity: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
+    max_cost: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+
+    @field_validator("policy_mode", mode="before")
+    @classmethod
+    def canonicalize_mode(cls, value: object) -> str:
+        return canonicalize_policy_mode(value)
 
 
 @app.get("/health")
@@ -105,6 +108,7 @@ def agent_run(req: AgentRunRequest):
 
     return {
         "request_id": result.get("request_id", req.request_id or ""),
+        "policy_mode": result.get("policy_mode", "balanced"),
         "task_type": task_type,
         "complexity_score": result.get("complexity_score", 0.0),
         "complexity_level": level,
@@ -223,8 +227,13 @@ def observability_trace_status(request_id: str):
 def usage_summary(
     dept_id: str | None = Query(default=None),
     period_days: int = Query(default=30, ge=1, le=365),
+    operating_cost_usd: float | None = Query(default=None, gt=0, allow_inf_nan=False),
 ):
-    return get_summary(period_days=period_days, dept_id=dept_id)
+    return get_summary(
+        period_days=period_days,
+        dept_id=dept_id,
+        operating_cost_usd=operating_cost_usd,
+    )
 
 
 @app.get("/usage/recent", response_model=UsageRecentResponse)

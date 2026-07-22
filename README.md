@@ -238,24 +238,33 @@ packaging decision (four-service architecture preserved).
 
 Provider health: `GET http://localhost:8004/providers/health`
 
-## Usage database and Dashboard (Day 7)
+## Usage database, cost avoidance, and ROI (Days 7 and 10)
 
 The optimizer-service persists terminal request outcomes in SQLite at
 `/app/data/usage/tokenwise.db` (Docker volume `usage_data`).
 
 - `POST /usage/log` — idempotent request logging (n8n calls on every terminal path)
-- `GET /usage/summary` — aggregated metrics for the Dashboard
+- `GET /usage/summary` — aggregated metrics for the Dashboard; accepts optional
+  positive `operating_cost_usd` for an explicit ROI scenario
 - `GET /usage/recent` — privacy-safe recent request list (no prompts)
 
 Dashboard fetches analytics via n8n read-only webhook:
 `GET http://localhost:5679/webhook/tokenwise-usage-summary`
 
-**Primary savings metric:** `actual_cost_saved` when known, else `estimated_savings`
-(one value per request — never double-counted).
+**Primary cost-avoidance metric:** `actual_cost_saved` when known, else
+`estimated_savings` (one value per request, never double-counted). The response
+reports actual and estimated coverage counts and keeps `total_savings` as a
+backward-compatible alias for `total_modeled_cost_avoidance`.
 
-**ROI:** `savings_percentage` vs baseline is reported; true commercial ROI is not
-claimed (`roi_status: operating_cost_not_modeled`) because TokenWise operating
-cost is not yet modeled.
+**ROI:** without `operating_cost_usd`, ROI remains `null` with
+`roi_status: operating_cost_not_modeled`. When a positive scenario cost is
+supplied, ROI is `(modeled cost avoidance - operating cost) / operating cost`.
+This keeps the scenario assumption explicit and avoids presenting local API cost
+as total operating cost.
+
+Policy-mode request counts and cost avoidance are reported separately for
+`conservative`, `balanced`, and `aggressive`. `premium_usage_rate` counts actual
+premium executions; `premium_requested_rate` reports premium requests.
 
 **Privacy:** only SHA-256 prompt fingerprints stored; no raw prompts, PII, or secrets.
 

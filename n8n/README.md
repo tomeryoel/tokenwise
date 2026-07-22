@@ -28,7 +28,7 @@ docker exec tokenwise-n8n-1 n8n publish:workflow --id=tokenwiseskeleton
 docker restart tokenwise-n8n-1
 ```
 
-Also import the usage-summary webhook (Day 7 Dashboard):
+Also import the usage-summary webhook (Day 7 Dashboard and Day 10 ROI):
 
 ```powershell
 docker cp n8n/tokenwise-usage-summary.workflow.json tokenwise-n8n-1:/tmp/usage-summary.json
@@ -46,6 +46,15 @@ The active webhook URL is:
 ```
 http://localhost:5679/webhook/tokenwise
 ```
+
+The read-only usage summary webhook is:
+
+```
+http://localhost:5679/webhook/tokenwise-usage-summary
+```
+
+It forwards `period_days`, `dept_id`, and the optional positive
+`operating_cost_usd` ROI scenario to the optimizer service.
 
 (When the workflow is NOT active you can still use the test URL
 `http://localhost:5679/webhook-test/tokenwise`, but you must click

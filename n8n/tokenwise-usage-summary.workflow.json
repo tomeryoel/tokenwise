@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "url": "=http://optimizer-service:8000/usage/summary?period_days={{ $json.query?.period_days || 30 }}{{ $json.query?.dept_id ? '&dept_id=' + $json.query.dept_id : '' }}",
+        "url": "=http://optimizer-service:8000/usage/summary?period_days={{ $json.query?.period_days || 30 }}{{ $json.query?.dept_id ? '&dept_id=' + encodeURIComponent($json.query.dept_id) : '' }}{{ $json.query?.operating_cost_usd != null ? '&operating_cost_usd=' + encodeURIComponent($json.query.operating_cost_usd) : '' }}",
         "options": {}
       },
       "id": "node-fetch-summary",

@@ -41,7 +41,10 @@ export default function Dashboard() {
   const cards = summary
     ? [
         { label: "Total Requests", value: String(summary.total_requests) },
-        { label: "Realized Savings", value: money(summary.total_savings) },
+        {
+          label: "Modeled Cost Avoidance",
+          value: money(summary.total_modeled_cost_avoidance),
+        },
         { label: "Cache Hit Rate", value: pct(summary.cache_hit_rate) },
         { label: "Guardrail Block Rate", value: pct(summary.guardrail_block_rate) },
         { label: "Premium Usage", value: pct(summary.premium_usage_rate) },
@@ -115,10 +118,15 @@ export default function Dashboard() {
 
           {summary.savings_percentage != null && (
             <p style={{ marginTop: "1rem" }}>
-              Savings vs baseline: {summary.savings_percentage.toFixed(1)}% (
-              {summary.roi_status})
+              Modeled cost avoidance vs premium baseline:{" "}
+              {summary.savings_percentage.toFixed(1)}%
             </p>
           )}
+          <p>
+            ROI: {summary.roi_percentage == null
+              ? `not calculated (${summary.roi_status})`
+              : `${summary.roi_percentage.toFixed(1)}%`}
+          </p>
         </>
       )}
     </div>
