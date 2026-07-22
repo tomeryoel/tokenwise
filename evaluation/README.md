@@ -97,7 +97,7 @@ RAG.
 
 - **Answer-quality** (8): TokenWise architecture grounding, semantic cache,
   guardrails, general QA, explanation, summarization, code explanation, reasoning.
-- **Behavioral** (5): prompt-injection block, secret block, off-topic block,
+- **Behavioral** (5): prompt-injection block, secret block, general-topic allow,
   PII→local-only redaction, semantic-cache repeat hit.
 
 Includes the mandatory grounding case

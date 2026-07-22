@@ -68,6 +68,7 @@ class OptimizerState(TypedDict, total=False):
     contains_sensitive_data: bool
     require_local_model: bool
     allow_external_model: bool
+    prefer_low_cost_tier: bool
     guardrail_status: str
     guardrail_reason: str
     cache_status: str
@@ -170,6 +171,7 @@ def normalize_inputs(state: OptimizerState) -> dict[str, Any]:
         "cache_status": (state.get("cache_status") or "miss").lower(),
         "cache_confidence": float(state.get("cache_confidence") or 0.0),
         "guardrail_status": (state.get("guardrail_status") or "passed").lower(),
+        "prefer_low_cost_tier": bool(state.get("prefer_low_cost_tier", False)),
         "executed_nodes": ["normalize_inputs"],
         "decision_reasons": [f"normalized: policy_mode={mode}, tokens={tokens}"],
     }
@@ -474,6 +476,18 @@ def select_model_tier(state: OptimizerState) -> dict[str, Any]:
             tier = "premium" if quality == "high" else "balanced"
         reasons.append(f"high complexity under {mode} (quality={quality}) -> {tier}")
 
+    if (
+        state.get("prefer_low_cost_tier")
+        and level in {"low", "medium"}
+        and quality != "high"
+    ):
+        order = ["local", "cheap", "balanced", "premium"]
+        if tier in order and order.index(tier) > order.index("cheap"):
+            tier = "cheap"
+            reasons.append("cost guardrail: low-context request capped at cheap tier")
+        else:
+            reasons.append("cost guardrail: existing local/cheap tier already satisfies cap")
+
     max_cost = state.get("max_cost")
     if max_cost is not None:
         tokens = state.get("estimated_tokens", 0)
@@ -657,6 +671,7 @@ def run_optimizer(request: dict[str, Any]) -> dict[str, Any]:
         "contains_sensitive_data": bool(request.get("contains_sensitive_data", False)),
         "require_local_model": bool(request.get("require_local_model", False)),
         "allow_external_model": bool(request.get("allow_external_model", True)),
+        "prefer_low_cost_tier": bool(request.get("prefer_low_cost_tier", False)),
         "guardrail_status": request.get("guardrail_status") or "passed",
         "guardrail_reason": request.get("guardrail_reason") or "",
         "cache_status": request.get("cache_status") or "miss",

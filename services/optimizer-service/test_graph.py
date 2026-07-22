@@ -180,3 +180,28 @@ def test_policy_modes_produce_different_plans():
     tiers = {m: _run(prompt=prompt, policy_mode=m)["selected_tier"]
              for m in ("conservative", "balanced", "aggressive")}
     assert len(set(tiers.values())) >= 2
+
+
+def test_low_context_cost_guardrail_caps_eligible_request_at_cheap():
+    without_hint = _run(prompt="Python?", policy_mode="conservative")
+    with_hint = _run(
+        prompt="Python?",
+        policy_mode="conservative",
+        prefer_low_cost_tier=True,
+    )
+
+    assert without_hint["selected_tier"] == "balanced"
+    assert with_hint["selected_tier"] == "cheap"
+    assert any("cost guardrail" in reason for reason in with_hint["decision_reasons"])
+
+
+def test_low_context_hint_does_not_override_high_quality_requirement():
+    result = _run(
+        prompt="Architecture tradeoffs",
+        policy_mode="conservative",
+        prefer_low_cost_tier=True,
+    )
+
+    assert result["complexity_level"] == "high"
+    assert result["quality_requirement"] == "high"
+    assert result["selected_tier"] == "premium"

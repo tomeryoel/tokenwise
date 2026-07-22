@@ -39,7 +39,7 @@
       "category": "tokenwise_architecture",
       "kind": "answer_quality",
       "user_input": "How do TokenWise input guardrails handle cost and safety before a model runs?",
-      "reference": "TokenWise input guardrails apply deterministic rules before any model runs. For safety, they block prompt-injection attempts and requests containing secrets or API keys, and they detect and redact PII, routing such requests to a local model. For cost governance, they block empty, too-short, or off-topic prompts to avoid spending on low-value requests. Blocked requests never reach a model, and the reason and detected risk type are recorded in the Decision Receipt.",
+      "reference": "TokenWise input guardrails apply deterministic rules before any model runs. For safety, they block direct prompt-injection attempts and requests containing secrets or API keys, and they detect and redact PII, routing such requests to a local model. For cost governance, they block empty or clearly non-meaningful prompts to avoid wasted model calls. Short but meaningful prompts are allowed and carry a low-cost-tier preference into LangGraph, while high quality requirements remain protected. General topics are not blocked. The reason and any detected risk type are recorded in the Decision Receipt.",
       "expected_task_type": "tokenwise_architecture",
       "expected_behavior": "answer",
       "expected_route": ["local", "cheap", "balanced"],
@@ -159,17 +159,17 @@
       "smoke": true
     },
     {
-      "case_id": "beh-guardrail-offtopic-011",
+      "case_id": "beh-guardrail-general-topic-011",
       "category": "behavioral_guardrail",
       "kind": "behavioral",
       "user_input": "Describe a relaxing tropical island holiday resort with white sand beaches.",
       "reference": null,
-      "expected_task_type": "blocked",
-      "expected_behavior": "block",
-      "expected_route": ["reject"],
+      "expected_task_type": "unknown",
+      "expected_behavior": "allow_and_optimize",
+      "expected_route": ["cheap", "local"],
       "quality_critical": false,
-      "expect_blocked": true,
-      "expect_no_external": true,
+      "expect_blocked": false,
+      "expect_no_external": false,
       "smoke": false
     },
     {

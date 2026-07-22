@@ -39,6 +39,9 @@ Response (full contract; values depend on the rules that fire):
   "estimated_cost_risk": "low",
   "estimated_tokens": 7,
   "cost_saved_by_blocking": 0.0,
+  "cost_control_action": "standard",
+  "cost_control_reason": null,
+  "prefer_low_cost_tier": false,
   "safe_text": "How do I reset my password?",
   "redacted_text": null
 }
@@ -52,14 +55,16 @@ Rule outcomes (checked in this order):
 | Prompt injection | false | prompt_injection_detected | prompt_injection | safety_governance |
 | Secret / API key | false | secret_detected | secret | safety_governance |
 | PII (email/phone/id) | true | pii_detected_redacted | pii | safety_governance |
-| Too short (<3 words) | false | too_short_or_low_value_prompt | low_value_prompt | cost_governance |
-| Off-topic | false | off_topic_cost_block | off_topic | cost_governance |
+| Obvious noise / no meaningful content | false | non_meaningful_prompt | low_value_prompt | cost_governance |
+| Short / low-context prompt | true | low_context_cost_optimization | null | cost_governance |
 | Otherwise | true | passed | null | null |
 
 Secrets/PII populate `safe_text` / `redacted_text` with `[REDACTED_SECRET]`,
-`[REDACTED_EMAIL]`, `[REDACTED_PHONE]`, `[REDACTED_ID]`. Short-command
-exceptions ("summarize this", "translate this", "explain this") bypass the
-too-short rule.
+`[REDACTED_EMAIL]`, `[REDACTED_PHONE]`, `[REDACTED_ID]`. Topic is never used as
+a block condition. Short but meaningful prompts pass with
+`prefer_low_cost_tier=true`; n8n forwards that signal to LangGraph, which caps
+eligible low/medium-complexity requests at the cheap tier without overriding a
+high quality requirement.
 
 ### POST /check/output
 Request: `{ "request_id": "r1", "answer": "..." }`
@@ -225,7 +230,8 @@ Request (signals forwarded by n8n from normalize + guardrails + cache):
   "guardrail_status": "passed", "guardrail_reason": "passed",
   "cache_status": "miss", "cache_confidence": 0.0,
   "contains_sensitive_data": false, "require_local_model": false,
-  "allow_external_model": true, "estimated_tokens": 7,
+  "allow_external_model": true, "prefer_low_cost_tier": false,
+  "estimated_tokens": 7,
   "has_image": false, "image_complexity": 0.0, "max_cost": null }
 ```
 Response (rich plan + legacy compatibility fields):

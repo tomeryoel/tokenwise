@@ -64,6 +64,7 @@ class AgentRunRequest(BaseModel):
     contains_sensitive_data: bool = False
     require_local_model: bool = False
     allow_external_model: bool = True
+    prefer_low_cost_tier: bool = False
     estimated_tokens: int = Field(default=0, ge=0)
     quality_requirement: str = ""
     latency_requirement: str = "normal"

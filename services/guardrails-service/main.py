@@ -1,8 +1,8 @@
 """guardrails-service (Day 3: real MVP guardrails).
 
 Implements safety governance (secrets, PII, prompt injection) and cost
-governance (empty / too-short / off-topic blocking) with deterministic,
-easy-to-explain rules. No ML yet - rules + regex only.
+governance (no-content blocking and low-context routing signals) with
+deterministic, easy-to-explain rules. No ML yet - rules + regex only.
 
 The /check/input response contract is preserved (same field names) so the n8n
 workflow and the React Decision Receipt keep working; new fields are additive.
@@ -32,22 +32,26 @@ app.add_middleware(
 # Detection rules
 # --------------------------------------------------------------------------- #
 INJECTION_PATTERNS = [
-    "ignore previous instructions",
-    "ignore all previous instructions",
-    "disregard previous instructions",
-    "disregard all previous instructions",
-    "reveal your system prompt",
-    "show hidden instructions",
-    "show me your system prompt",
-    "bypass policy",
-    "act as if there are no rules",
-    "act as if there were no rules",
+    re.compile(
+        r"^\s*(?:please\s+)?(?:ignore|disregard)(?:\s+all)?\s+previous instructions\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:please\s+)?(?:reveal|show)(?:\s+me)?\s+"
+        r"(?:your\s+system prompt|the\s+system prompt|hidden instructions)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"^\s*(?:please\s+)?bypass(?:\s+the)?\s+policy\b", re.IGNORECASE),
+    re.compile(
+        r"^\s*(?:please\s+)?act as if there (?:are|were) no rules\b",
+        re.IGNORECASE,
+    ),
 ]
 
 SECRET_REGEXES = [
     re.compile(r"sk-[A-Za-z0-9]{8,}"),                       # OpenAI-style keys
     re.compile(r"(?i)api[_-]?key\s*[=:]\s*\S+"),             # api_key=...
-    re.compile(r"(OPENAI_API_KEY|GITHUB_TOKEN)(\s*[=:]\s*\S+)?"),
+    re.compile(r"(?i)\b(?:OPENAI_API_KEY|GITHUB_TOKEN)\b\s*[=:]\s*\S+"),
     re.compile(r"gh[pous]_[A-Za-z0-9]{20,}"),                # GitHub tokens
 ]
 # Long high-entropy-ish tokens (must mix letters + digits to reduce false hits).
@@ -57,19 +61,7 @@ EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 ID_RE = re.compile(r"\b\d{9}\b")            # Israeli-ID-like 9 digit number
 PHONE_RE = re.compile(r"\+?\d[\d\-\s]{6,}\d")
 
-SHORT_COMMAND_EXCEPTIONS = {"summarize this", "translate this", "explain this"}
-SHORT_COMMAND_VERBS = {"summarize", "summarise", "translate", "explain"}
-
-# Cost-governance allowlist for this academic MVP (on-topic keywords).
-ALLOWED_KEYWORDS = [
-    "ai", "llm", "gpt", "openai", "anthropic", "gemini", "ollama",
-    "token", "model", "route", "routing", "prompt", "optimi",  # optimize/optimization
-    "cache", "guardrail", "cost", "price", "budget", "saving", "spend",
-    "dashboard", "report", "latency", "embedding", "tokenwise",
-    "support", "helpdesk", "help desk", "password", "reset", "account",
-    "login", "api", "question", "answer", "summarize", "summarise",
-    "translate", "explain", "document", "code", "error", "bug",
-]
+WORDLIKE_RE = re.compile(r"\w+", re.UNICODE)
 
 
 def estimate_tokens(text: str) -> int:
@@ -119,15 +111,21 @@ def redact_pii(text: str):
     return redacted, found["v"]
 
 
-def is_short_exception(lower: str) -> bool:
-    if lower in SHORT_COMMAND_EXCEPTIONS:
+def meaningful_units(text: str) -> list[str]:
+    return WORDLIKE_RE.findall(text)
+
+
+def is_non_meaningful(text: str) -> bool:
+    """Conservatively reject obvious noise without judging the prompt's topic."""
+    units = meaningful_units(text)
+    if not units:
         return True
-    parts = lower.split()
-    return bool(parts) and parts[0] in SHORT_COMMAND_VERBS
 
+    letters = [char.casefold() for char in text if char.isalpha()]
+    if len(letters) >= 4 and len(set(letters)) == 1:
+        return True
 
-def is_on_topic(lower: str) -> bool:
-    return any(k in lower for k in ALLOWED_KEYWORDS)
+    return False
 
 
 def make_response(prompt: str, **override) -> dict:
@@ -147,6 +145,9 @@ def make_response(prompt: str, **override) -> dict:
         "estimated_cost_risk": "low",
         "estimated_tokens": tokens,
         "cost_saved_by_blocking": 0.0,
+        "cost_control_action": "standard",
+        "cost_control_reason": None,
+        "prefer_low_cost_tier": False,
         "safe_text": prompt,
         "redacted_text": None,
     }
@@ -201,13 +202,13 @@ def check_input(req: InputCheckRequest):
             "policy_triggered": "cost_governance",
             "estimated_cost_risk": "low",
             "cost_saved_by_blocking": cost_saved(tokens),
+            "cost_control_action": "block_no_content",
+            "cost_control_reason": "empty input would waste a model call",
             "safe_text": None,
         })
 
-    lower = stripped.lower()
-
     # 2) Prompt injection -> safety governance block (high severity).
-    if any(p in lower for p in INJECTION_PATTERNS):
+    if any(pattern.search(stripped) for pattern in INJECTION_PATTERNS):
         return make_response(prompt, **{
             "pass": False,
             "reason": "prompt_injection_detected",
@@ -220,6 +221,8 @@ def check_input(req: InputCheckRequest):
             "require_human_approval": False,
             "estimated_cost_risk": "low",
             "cost_saved_by_blocking": cost_saved(tokens),
+            "cost_control_action": "block_safety",
+            "cost_control_reason": "unsafe request stopped before model execution",
         })
 
     # 3) Secrets -> block, high severity, local-only, redacted.
@@ -238,6 +241,8 @@ def check_input(req: InputCheckRequest):
             "require_local_model": True,
             "estimated_cost_risk": "low",
             "cost_saved_by_blocking": cost_saved(tokens),
+            "cost_control_action": "block_safety",
+            "cost_control_reason": "secret stopped before model execution",
             "safe_text": redacted_secret,
             "redacted_text": redacted_secret,
         })
@@ -258,31 +263,36 @@ def check_input(req: InputCheckRequest):
             "require_local_model": True,
             "estimated_cost_risk": "low",
             "cost_saved_by_blocking": 0.0,
+            "cost_control_action": "local_only",
+            "cost_control_reason": "sensitive data stays on the local model",
             "safe_text": redacted_pii,
             "redacted_text": redacted_pii,
         })
 
-    # 5) Too short / low value -> cost governance block (with exceptions).
-    words = [w for w in stripped.split() if any(c.isalnum() for c in w)]
-    if len(words) < 3 and not is_short_exception(lower):
+    # 5) Obvious noise -> cost governance block. Topic is never a block reason.
+    if is_non_meaningful(stripped):
         return make_response(prompt, **{
             "pass": False,
-            "reason": "too_short_or_low_value_prompt",
+            "reason": "non_meaningful_prompt",
             "detected_risk_type": "low_value_prompt",
             "policy_triggered": "cost_governance",
             "estimated_cost_risk": "low",
             "cost_saved_by_blocking": cost_saved(tokens),
+            "cost_control_action": "block_no_content",
+            "cost_control_reason": "obvious noise would waste a model call",
         })
 
-    # 6) Off-topic -> cost governance block.
-    if not is_on_topic(lower):
+    # 6) Short/low-context prompts remain legitimate, but carry a real routing
+    # signal so LangGraph can prefer a cheaper tier when quality permits.
+    if len(meaningful_units(stripped)) < 3:
         return make_response(prompt, **{
-            "pass": False,
-            "reason": "off_topic_cost_block",
-            "detected_risk_type": "off_topic",
+            "pass": True,
+            "reason": "low_context_cost_optimization",
             "policy_triggered": "cost_governance",
-            "estimated_cost_risk": "medium",
-            "cost_saved_by_blocking": cost_saved(tokens),
+            "recommended_route": "cheap",
+            "cost_control_action": "prefer_low_cost_tier",
+            "cost_control_reason": "low-context request should start on a low-cost tier",
+            "prefer_low_cost_tier": True,
         })
 
     # Passed all checks.
