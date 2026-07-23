@@ -7,16 +7,12 @@ import { PRODUCT_NAME } from "../brand";
 
 interface Props {
   policyMode: PolicyMode;
-  setPolicyMode: (m: PolicyMode) => void;
   session: PlaygroundSession;
   setSession: React.Dispatch<React.SetStateAction<PlaygroundSession>>;
 }
 
-const MODES: PolicyMode[] = ["conservative", "balanced", "aggressive"];
-
 export default function Playground({
   policyMode,
-  setPolicyMode,
   session,
   setSession,
 }: Props) {
@@ -30,7 +26,7 @@ export default function Playground({
     setSession((s) => ({ ...s, loading: true, error: null }));
 
     try {
-      const res = await runPrompt(prompt, policyMode, attachment);
+      const res = await runPrompt(prompt, attachment);
       setSession((s) => ({
         ...s,
         loading: false,
@@ -90,21 +86,10 @@ export default function Playground({
           />
         </div>
 
-        <div className="row">
-          <label className="field-label" htmlFor="playground-policy">
-            Policy mode
-          </label>
-          <select
-            id="playground-policy"
-            value={policyMode}
-            onChange={(e) => setPolicyMode(e.target.value as PolicyMode)}
-          >
-            {MODES.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+        <div className="playground-policy">
+          <span>Organization policy</span>
+          <strong>{policyMode}</strong>
+          <small>Managed by your organization owner or admin</small>
         </div>
 
         <button className="primary" type="submit" disabled={loading}>

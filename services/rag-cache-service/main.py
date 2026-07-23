@@ -4,7 +4,7 @@ Implements a real semantic cache using:
   * sentence-transformers/all-MiniLM-L6-v2 embeddings (CPU only)
   * ChromaDB persistent storage (embedded client, no separate server)
   * cosine similarity with a configurable threshold
-  * dept_id metadata isolation
+  * organization_id + dept_id metadata isolation
   * sensitive-data exclusion (never search or store sensitive requests)
 
 Distance -> confidence:
@@ -22,8 +22,7 @@ import time
 import uuid
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import chromadb
 
@@ -38,13 +37,6 @@ COLLECTION_NAME = "semantic_cache"
 PREMIUM_PRICE_PER_TOKEN = 0.00003
 
 app = FastAPI(title=SERVICE_NAME)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # --------------------------------------------------------------------------- #
 # Persistent Chroma client + lazily-loaded embedding model
@@ -97,7 +89,9 @@ def clamp01(x: float) -> float:
 class CacheLookupRequest(BaseModel):
     query: str | None = None
     prompt: str | None = None
-    dept_id: str = "demo-support"
+    organization_id: str = Field(default="legacy-local", min_length=1, max_length=200)
+    user_id: str = Field(default="legacy-anonymous", min_length=1, max_length=200)
+    dept_id: str = Field(default="demo-support", min_length=1, max_length=200)
     task_type: str = "general"
     threshold: float | None = None
     contains_sensitive_data: bool = False
@@ -107,7 +101,9 @@ class CacheStoreRequest(BaseModel):
     query: str | None = None
     prompt: str | None = None
     answer: str = ""
-    dept_id: str = "demo-support"
+    organization_id: str = Field(default="legacy-local", min_length=1, max_length=200)
+    user_id: str = Field(default="legacy-anonymous", min_length=1, max_length=200)
+    dept_id: str = Field(default="demo-support", min_length=1, max_length=200)
     task_type: str = "general"
     contains_sensitive_data: bool = False
     output_guardrail_passed: bool = True
@@ -133,6 +129,7 @@ def health():
 @app.post("/cache/lookup")
 def cache_lookup(req: CacheLookupRequest):
     text = _text(req)
+    organization_id = req.organization_id
     dept_id = req.dept_id or "demo-support"
     threshold = req.threshold if req.threshold is not None else DEFAULT_THRESHOLD
     tokens = estimate_tokens(text)
@@ -142,6 +139,7 @@ def cache_lookup(req: CacheLookupRequest):
         "confidence": 0.0,
         "answer": None,
         "entry_id": None,
+        "organization_id": organization_id,
         "dept_id": dept_id,
         "estimated_tokens": tokens,
         "cost_saved": 0.0,
@@ -158,12 +156,17 @@ def cache_lookup(req: CacheLookupRequest):
     results = _collection.query(
         query_embeddings=[embed(text)],
         n_results=1,
-        where={"dept_id": dept_id},
+        where={
+            "$and": [
+                {"organization_id": organization_id},
+                {"dept_id": dept_id},
+            ]
+        },
     )
 
     ids = (results.get("ids") or [[]])[0]
     if not ids:
-        return {**base, "reason": "no_entries_for_dept"}
+        return {**base, "reason": "no_entries_for_scope"}
 
     distance = (results.get("distances") or [[1.0]])[0][0]
     confidence = round(clamp01(1.0 - distance), 4)
@@ -190,6 +193,7 @@ def cache_lookup(req: CacheLookupRequest):
 @app.post("/cache/store")
 def cache_store(req: CacheStoreRequest):
     text = _text(req)
+    organization_id = req.organization_id
     dept_id = req.dept_id or "demo-support"
 
     if req.contains_sensitive_data:
@@ -207,9 +211,10 @@ def cache_store(req: CacheStoreRequest):
         embeddings=[embed(text)],
         documents=[req.answer],
         metadatas=[{
+            "organization_id": organization_id,
+            "user_id": req.user_id,
             "dept_id": dept_id,
             "task_type": req.task_type or "general",
-            "query": text,
             "created_at": time.time(),
         }],
     )

@@ -1,4 +1,10 @@
-import type { DecisionReceipt, PolicyMode, RunResponse } from "./types";
+import type {
+  AuthState,
+  AuthUser,
+  DecisionReceipt,
+  PolicyMode,
+  RunResponse,
+} from "./types";
 import { PRODUCT_NAME } from "./brand";
 
 const WEBHOOK_URL =
@@ -8,6 +14,30 @@ const WEBHOOK_URL =
 const USAGE_SUMMARY_URL =
   import.meta.env.VITE_USAGE_SUMMARY_URL ??
   "/api/webhook/tokenwise-usage-summary";
+
+const AUTH_STATE_URL = "/api/auth/state";
+const AUTH_SETUP_URL = "/api/auth/setup";
+const AUTH_LOGIN_URL = "/api/auth/login";
+const AUTH_LOGOUT_URL = "/api/auth/logout";
+const AUTH_PASSWORD_URL = "/api/auth/password";
+const POLICY_URL = "/api/policy";
+const USERS_URL = "/api/users";
+
+export interface SetupPayload {
+  display_name: string;
+  email: string;
+  password: string;
+  organization_name: string;
+  department_id: string;
+}
+
+export interface CreateUserPayload {
+  display_name: string;
+  email: string;
+  password: string;
+  role: "admin" | "member";
+  department_id: string;
+}
 
 export interface UsageSummary {
   period_days: number;
@@ -62,12 +92,10 @@ async function fileToBase64(file: File): Promise<string> {
 
 export async function runPrompt(
   prompt: string,
-  policyMode: PolicyMode,
   attachment?: File | null,
 ): Promise<RunResponse> {
   const requestPayload: Record<string, unknown> = {
     prompt,
-    policy_mode: policyMode,
   };
   if (attachment) {
     requestPayload.has_image = true;
@@ -150,7 +178,111 @@ export async function fetchUsageSummary(
   }
 }
 
+export async function fetchAuthState(): Promise<AuthState> {
+  return fetchJson<AuthState>(AUTH_STATE_URL);
+}
+
+export async function setupOwner(payload: SetupPayload): Promise<AuthState> {
+  return fetchJson<AuthState>(AUTH_SETUP_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function login(email: string, password: string): Promise<AuthState> {
+  return fetchJson<AuthState>(AUTH_LOGIN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function logout(): Promise<void> {
+  const response = await fetch(AUTH_LOGOUT_URL, { method: "POST" });
+  if (!response.ok) throw new Error(await apiFailureMessage(response));
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<AuthUser> {
+  return fetchJson<AuthUser>(AUTH_PASSWORD_URL, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+}
+
+export async function updatePolicy(policyMode: PolicyMode): Promise<AuthUser> {
+  return fetchJson<AuthUser>(POLICY_URL, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ policy_mode: policyMode }),
+  });
+}
+
+export async function fetchUsers(): Promise<AuthUser[]> {
+  return fetchJson<AuthUser[]>(USERS_URL);
+}
+
+export async function createUser(
+  payload: CreateUserPayload,
+): Promise<AuthUser> {
+  return fetchJson<AuthUser>(USERS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch (error) {
+    console.error(`${PRODUCT_NAME} API request failed.`, error);
+    throw new Error(`Could not reach ${PRODUCT_NAME}. Make sure it is running.`);
+  }
+  if (!response.ok) throw new Error(await apiFailureMessage(response));
+  try {
+    return await response.json() as T;
+  } catch (error) {
+    console.error(`${PRODUCT_NAME} returned invalid JSON.`, error);
+    throw new Error(`${PRODUCT_NAME} returned an unreadable response.`);
+  }
+}
+
+async function apiFailureMessage(response: Response): Promise<string> {
+  let detail = "";
+  try {
+    const body = await response.json() as { detail?: unknown };
+    if (typeof body.detail === "string") detail = body.detail;
+  } catch {
+    // Fall back to the status-specific message below.
+  }
+  const messages: Record<string, string> = {
+    invalid_credentials: "The email or password is incorrect.",
+    invalid_current_password: "Your current password is incorrect.",
+    new_password_must_differ: "Choose a new password that differs from the current one.",
+    too_many_login_attempts: "Too many sign-in attempts. Please wait 15 minutes.",
+    setup_already_completed: "Initial setup has already been completed.",
+    authentication_required: "Your session has ended. Please sign in again.",
+    manager_role_required: "Only an owner or admin can change organization policy.",
+    owner_role_required: "Only the organization owner can create an admin account.",
+    email_already_exists: "An account with this email already exists.",
+    untrusted_origin: "This request came from an untrusted browser origin.",
+  };
+  return messages[detail] ?? `Request failed (HTTP ${response.status}).`;
+}
+
 function httpFailureMessage(status: number): string {
+  if (status === 401) {
+    return "Your session has ended. Sign in again, then retry the request.";
+  }
   if (status === 404) {
     return `The ${PRODUCT_NAME} workflow endpoint was not found (HTTP 404). Make sure the n8n workflow is imported and active, then try again.`;
   }

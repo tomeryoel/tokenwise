@@ -7,6 +7,16 @@ from policy import PolicyMode, canonicalize_policy_mode
 
 class UsageLogRequest(BaseModel):
     request_id: str = Field(min_length=1, max_length=200)
+    organization_id: str = Field(
+        default="legacy-local",
+        min_length=1,
+        max_length=200,
+    )
+    user_id: str = Field(
+        default="legacy-anonymous",
+        min_length=1,
+        max_length=200,
+    )
     dept_id: str = Field(default="unknown", min_length=1, max_length=200)
     policy_mode: PolicyMode = "balanced"
     prompt: str = ""
@@ -104,6 +114,8 @@ class UsageSummaryResponse(BaseModel):
 class RecentRequestItem(BaseModel):
     request_id: str
     created_at: str
+    organization_id: str
+    user_id: str
     dept_id: str
     policy_mode: PolicyMode
     task_type: str | None

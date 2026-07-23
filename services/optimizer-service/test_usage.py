@@ -90,11 +90,52 @@ def test_database_initialization(tmp_db):
         tables = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()}
+        request_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(requests)").fetchall()
+        }
+        schema_version = conn.execute("PRAGMA user_version").fetchone()[0]
     assert "requests" in tables
     assert "model_executions" in tables
     assert "optimization_actions" in tables
     assert "output_guardrail_results" in tables
     assert "observability_exports" in tables
+    assert {"organization_id", "user_id"} <= request_columns
+    assert schema_version == 2
+
+
+def test_identity_migration_preserves_legacy_rows():
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    dept_id TEXT NOT NULL DEFAULT 'unknown'
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO requests (request_id, dept_id) VALUES ('legacy-1', 'sales')"
+            )
+            conn.commit()
+
+        init_db(path)
+
+        with sqlite3.connect(path) as conn:
+            row = conn.execute(
+                """
+                SELECT organization_id, user_id, dept_id
+                FROM requests
+                WHERE request_id = 'legacy-1'
+                """
+            ).fetchone()
+        assert row == ("legacy-local", "legacy-anonymous", "sales")
+    finally:
+        os.unlink(path)
 
 
 def test_request_logging(tmp_db):
@@ -210,6 +251,99 @@ def test_policy_mode_breakdowns(sample_logs):
 def test_department_filtering(sample_logs):
     s = get_summary(period_days=30, dept_id="sales", db_path=sample_logs)
     assert s.total_requests == 1
+
+
+def test_organization_and_user_filtering(tmp_db):
+    log_usage(
+        UsageLogRequest(
+            request_id="org-a-user-a",
+            organization_id="org-a",
+            user_id="user-a",
+            dept_id="support",
+        ),
+        db_path=tmp_db,
+    )
+    log_usage(
+        UsageLogRequest(
+            request_id="org-a-user-b",
+            organization_id="org-a",
+            user_id="user-b",
+            dept_id="support",
+        ),
+        db_path=tmp_db,
+    )
+    log_usage(
+        UsageLogRequest(
+            request_id="org-b-user-c",
+            organization_id="org-b",
+            user_id="user-c",
+            dept_id="support",
+        ),
+        db_path=tmp_db,
+    )
+
+    organization = get_summary(
+        period_days=30,
+        organization_id="org-a",
+        db_path=tmp_db,
+    )
+    user = get_summary(
+        period_days=30,
+        organization_id="org-a",
+        user_id="user-a",
+        db_path=tmp_db,
+    )
+    recent = get_recent(
+        organization_id="org-b",
+        db_path=tmp_db,
+    )
+
+    assert organization.total_requests == 2
+    assert user.total_requests == 1
+    assert [item.request_id for item in recent.items] == ["org-b-user-c"]
+
+
+def test_manager_scope_can_include_preserved_legacy_history(tmp_db):
+    log_usage(
+        UsageLogRequest(
+            request_id="legacy-history",
+            organization_id="legacy-local",
+            user_id="legacy-anonymous",
+        ),
+        db_path=tmp_db,
+    )
+    log_usage(
+        UsageLogRequest(
+            request_id="new-owner-history",
+            organization_id="org-a",
+            user_id="owner-a",
+        ),
+        db_path=tmp_db,
+    )
+    log_usage(
+        UsageLogRequest(
+            request_id="other-org-history",
+            organization_id="org-b",
+            user_id="owner-b",
+        ),
+        db_path=tmp_db,
+    )
+
+    manager = get_summary(
+        period_days=30,
+        organization_id="org-a",
+        include_legacy=True,
+        db_path=tmp_db,
+    )
+    member = get_summary(
+        period_days=30,
+        organization_id="org-a",
+        user_id="owner-a",
+        db_path=tmp_db,
+    )
+
+    assert manager.total_requests == 2
+    assert member.total_requests == 1
 
 
 def test_recent_excludes_prompts(sample_logs):

@@ -1,5 +1,23 @@
 export type PolicyMode = "conservative" | "balanced" | "aggressive";
 
+export interface AuthUser {
+  id: string;
+  organization_id: string;
+  organization_name: string;
+  email: string;
+  display_name: string;
+  role: "owner" | "admin" | "member";
+  department_id: string;
+  policy_mode: PolicyMode;
+  can_manage: boolean;
+}
+
+export interface AuthState {
+  setup_required: boolean;
+  authenticated: boolean;
+  user: AuthUser | null;
+}
+
 export interface DecisionReceipt {
   policy_mode?: PolicyMode | null;
   guardrail_status: string;

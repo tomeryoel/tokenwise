@@ -156,7 +156,7 @@ start() {
     check_provider true
 
     # n8n must be stopped before the one-shot importer updates its SQLite database.
-    docker compose stop frontend n8n >/dev/null 2>&1 || true
+    docker compose stop frontend gateway-service n8n >/dev/null 2>&1 || true
     docker compose up -d --build
     wait_for_frontend
     docker compose ps

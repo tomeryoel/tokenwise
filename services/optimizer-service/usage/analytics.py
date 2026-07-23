@@ -23,8 +23,41 @@ def _period_filter(days: int) -> str:
     return f"-{int(days)} days"
 
 
+def _scope_filter(
+    *,
+    period_days: int | None = None,
+    organization_id: str | None = None,
+    include_legacy: bool = False,
+    user_id: str | None = None,
+    dept_id: str | None = None,
+) -> tuple[str, list]:
+    clauses: list[str] = []
+    params: list = []
+    if period_days is not None:
+        clauses.append("datetime(r.created_at) >= datetime('now', ?)")
+        params.append(_period_filter(period_days))
+    if organization_id:
+        if include_legacy:
+            clauses.append(
+                "(r.organization_id = ? OR r.organization_id = 'legacy-local')"
+            )
+        else:
+            clauses.append("r.organization_id = ?")
+        params.append(organization_id)
+    if user_id:
+        clauses.append("r.user_id = ?")
+        params.append(user_id)
+    if dept_id:
+        clauses.append("r.dept_id = ?")
+        params.append(dept_id)
+    return " AND ".join(clauses) if clauses else "1 = 1", params
+
+
 def get_summary(
     period_days: int = 30,
+    organization_id: str | None = None,
+    include_legacy: bool = False,
+    user_id: str | None = None,
     dept_id: str | None = None,
     operating_cost_usd: float | None = None,
     db_path: str | None = None,
@@ -34,13 +67,13 @@ def get_summary(
         not math.isfinite(operating_cost_usd) or operating_cost_usd <= 0
     ):
         raise ValueError("operating_cost_usd must be finite and greater than zero")
-    period_clause = "datetime(r.created_at) >= datetime('now', ?)"
-    params: list = [_period_filter(period_days)]
-
-    dept_clause = ""
-    if dept_id:
-        dept_clause = " AND r.dept_id = ?"
-        params.append(dept_id)
+    scope_clause, params = _scope_filter(
+        period_days=period_days,
+        organization_id=organization_id,
+        include_legacy=include_legacy,
+        user_id=user_id,
+        dept_id=dept_id,
+    )
 
     with get_connection(db_path) as conn:
         row = conn.execute(
@@ -79,7 +112,7 @@ def get_summary(
             FROM requests r
             LEFT JOIN model_executions m ON m.request_id = r.request_id
             LEFT JOIN optimization_actions o ON o.request_id = r.request_id
-            WHERE {period_clause}{dept_clause}
+            WHERE {scope_clause}
             """,
             params,
         ).fetchone()
@@ -106,7 +139,7 @@ def get_summary(
                 ) AS savings
             FROM requests r
             JOIN optimization_actions o ON o.request_id = r.request_id
-            WHERE {period_clause}{dept_clause}
+            WHERE {scope_clause}
             GROUP BY o.savings_source
             """,
             params,
@@ -131,7 +164,7 @@ def get_summary(
                 ) AS savings
             FROM requests r
             LEFT JOIN optimization_actions o ON o.request_id = r.request_id
-            WHERE {period_clause}{dept_clause}
+            WHERE {scope_clause}
             GROUP BY r.policy_mode
             """,
             params,
@@ -204,23 +237,27 @@ def get_summary(
 
 def get_recent(
     limit: int = 20,
+    organization_id: str | None = None,
+    include_legacy: bool = False,
+    user_id: str | None = None,
     dept_id: str | None = None,
     db_path: str | None = None,
 ) -> UsageRecentResponse:
     limit = max(1, min(limit, 100))
-    params: list = []
-    dept_clause = ""
-    if dept_id:
-        dept_clause = " WHERE r.dept_id = ?"
-        params.append(dept_id)
-
+    scope_clause, params = _scope_filter(
+        organization_id=organization_id,
+        include_legacy=include_legacy,
+        user_id=user_id,
+        dept_id=dept_id,
+    )
     params.append(limit)
 
     with get_connection(db_path) as conn:
         rows = conn.execute(
             f"""
             SELECT
-                r.request_id, r.created_at, r.dept_id, r.policy_mode, r.task_type, r.status,
+                r.request_id, r.created_at, r.organization_id, r.user_id,
+                r.dept_id, r.policy_mode, r.task_type, r.status,
                 r.guardrail_status, r.cache_status,
                 m.provider, m.model, m.requested_tier, m.executed_tier,
                 COALESCE(m.actual_total_tokens, 0) AS actual_total_tokens,
@@ -237,7 +274,7 @@ def get_recent(
             FROM requests r
             LEFT JOIN model_executions m ON m.request_id = r.request_id
             LEFT JOIN optimization_actions o ON o.request_id = r.request_id
-            {dept_clause}
+            WHERE {scope_clause}
             ORDER BY r.created_at DESC
             LIMIT ?
             """,
@@ -248,6 +285,8 @@ def get_recent(
         RecentRequestItem(
             request_id=row["request_id"],
             created_at=row["created_at"],
+            organization_id=row["organization_id"],
+            user_id=row["user_id"],
             dept_id=row["dept_id"],
             policy_mode=row["policy_mode"],
             task_type=row["task_type"],

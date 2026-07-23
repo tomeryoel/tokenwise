@@ -10,7 +10,6 @@ workflow and the React Decision Receipt keep working; new fields are additive.
 import re
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 SERVICE_NAME = "guardrails-service"
@@ -19,13 +18,6 @@ SERVICE_NAME = "guardrails-service"
 PREMIUM_PRICE_PER_TOKEN = 0.00003
 
 app = FastAPI(title=SERVICE_NAME)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 # --------------------------------------------------------------------------- #

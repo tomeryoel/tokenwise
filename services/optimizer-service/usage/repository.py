@@ -54,11 +54,14 @@ def log_usage(req: UsageLogRequest, db_path: str | None = None) -> UsageLogRespo
         conn.execute(
             """
             INSERT INTO requests (
-                request_id, dept_id, policy_mode, prompt_fingerprint,
+                request_id, organization_id, user_id, dept_id,
+                policy_mode, prompt_fingerprint,
                 task_type, complexity_level, guardrail_status, guardrail_reason,
                 detected_risk_type, cache_status, cache_confidence, graph_path, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(request_id) DO UPDATE SET
+                organization_id = excluded.organization_id,
+                user_id = excluded.user_id,
                 dept_id = excluded.dept_id,
                 policy_mode = excluded.policy_mode,
                 prompt_fingerprint = excluded.prompt_fingerprint,
@@ -74,6 +77,8 @@ def log_usage(req: UsageLogRequest, db_path: str | None = None) -> UsageLogRespo
             """,
             (
                 req.request_id,
+                req.organization_id,
+                req.user_id,
                 req.dept_id,
                 req.policy_mode,
                 fingerprint,

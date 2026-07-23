@@ -13,7 +13,6 @@ decision to preserve the lecturer-required four FastAPI microservices.
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
 from graph import run_optimizer
@@ -44,13 +43,6 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title=SERVICE_NAME, lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 class AgentRunRequest(BaseModel):
@@ -226,12 +218,18 @@ def observability_trace_status(request_id: str):
 
 @app.get("/usage/summary", response_model=UsageSummaryResponse)
 def usage_summary(
+    organization_id: str | None = Query(default=None, max_length=200),
+    include_legacy: bool = Query(default=False),
+    user_id: str | None = Query(default=None, max_length=200),
     dept_id: str | None = Query(default=None),
     period_days: int = Query(default=30, ge=1, le=365),
     operating_cost_usd: float | None = Query(default=None, gt=0, allow_inf_nan=False),
 ):
     return get_summary(
         period_days=period_days,
+        organization_id=organization_id,
+        include_legacy=include_legacy,
+        user_id=user_id,
         dept_id=dept_id,
         operating_cost_usd=operating_cost_usd,
     )
@@ -240,6 +238,15 @@ def usage_summary(
 @app.get("/usage/recent", response_model=UsageRecentResponse)
 def usage_recent(
     limit: int = Query(default=20, ge=1, le=100),
+    organization_id: str | None = Query(default=None, max_length=200),
+    include_legacy: bool = Query(default=False),
+    user_id: str | None = Query(default=None, max_length=200),
     dept_id: str | None = Query(default=None),
 ):
-    return get_recent(limit=limit, dept_id=dept_id)
+    return get_recent(
+        limit=limit,
+        organization_id=organization_id,
+        include_legacy=include_legacy,
+        user_id=user_id,
+        dept_id=dept_id,
+    )

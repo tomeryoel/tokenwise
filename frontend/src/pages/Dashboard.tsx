@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { fetchUsageSummary, type UsageSummary } from "../api";
 import { PRODUCT_NAME } from "../brand";
+import type { AuthUser } from "../types";
 
 const PERIOD_OPTIONS = [7, 30, 90];
 
@@ -50,7 +51,7 @@ function sourceLabel(source: string): string {
   return SOURCE_LABELS[source] ?? source.replace(/_/g, " ");
 }
 
-export default function Dashboard() {
+export default function Dashboard({ user }: { user: AuthUser }) {
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +68,7 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     fetchUsageSummary(
-      appliedDepartment || undefined,
+      user.can_manage ? appliedDepartment || undefined : undefined,
       periodDays,
       appliedOperatingCost,
     )
@@ -83,7 +84,13 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [appliedDepartment, appliedOperatingCost, periodDays, refreshKey]);
+  }, [
+    appliedDepartment,
+    appliedOperatingCost,
+    periodDays,
+    refreshKey,
+    user.can_manage,
+  ]);
 
   function applyDepartmentFilter(event: FormEvent) {
     event.preventDefault();
@@ -141,8 +148,9 @@ export default function Dashboard() {
           <span className="page-eyebrow">Live usage intelligence</span>
           <h1>Dashboard</h1>
           <p>
-            A decision-level view of {PRODUCT_NAME} usage, cost avoidance, and
-            operating behavior from the local SQLite database.
+            {user.can_manage
+              ? `Organization-scoped ${PRODUCT_NAME} usage, cost avoidance, and operating behavior.`
+              : `Your ${PRODUCT_NAME} usage, cost avoidance, and operating behavior.`}
           </p>
         </div>
         <div className={`dashboard-live-status ${error ? "stale" : ""}`}>
@@ -171,28 +179,37 @@ export default function Dashboard() {
             ))}
           </select>
         </label>
-        <label className="dashboard-filter-field">
-          <span>Department filter</span>
-          <input
-            value={departmentInput}
-            onChange={(event) => setDepartmentInput(event.target.value)}
-            placeholder="All departments"
-          />
-        </label>
-        <div className="dashboard-filter-actions">
-          <button className="secondary-button" type="submit">
-            Apply
-          </button>
-          {appliedDepartment && (
-            <button
-              className="text-button"
-              type="button"
-              onClick={clearDepartmentFilter}
-            >
-              Clear
-            </button>
-          )}
-        </div>
+        {user.can_manage ? (
+          <>
+            <label className="dashboard-filter-field">
+              <span>Department filter</span>
+              <input
+                value={departmentInput}
+                onChange={(event) => setDepartmentInput(event.target.value)}
+                placeholder="All departments"
+              />
+            </label>
+            <div className="dashboard-filter-actions">
+              <button className="secondary-button" type="submit">
+                Apply
+              </button>
+              {appliedDepartment && (
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={clearDepartmentFilter}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="dashboard-scope">
+            <span>Data scope</span>
+            <strong>Your account only</strong>
+          </div>
+        )}
       </form>
 
       {error && (

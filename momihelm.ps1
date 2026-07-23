@@ -131,7 +131,7 @@ function Start-MomiHelm {
     Assert-Docker
     Assert-Provider $true
 
-    docker compose stop frontend n8n *> $null
+    docker compose stop frontend gateway-service n8n *> $null
     docker compose up -d --build
     if ($LASTEXITCODE -ne 0) {
         throw "Docker Compose could not start MomiHelm."

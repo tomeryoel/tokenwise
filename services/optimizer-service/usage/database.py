@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     request_id TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    organization_id TEXT NOT NULL DEFAULT 'legacy-local',
+    user_id TEXT NOT NULL DEFAULT 'legacy-anonymous',
     dept_id TEXT NOT NULL DEFAULT 'unknown',
     policy_mode TEXT NOT NULL DEFAULT 'balanced',
     prompt_fingerprint TEXT NOT NULL,
@@ -87,6 +89,30 @@ CREATE INDEX IF NOT EXISTS idx_observability_exported ON observability_exports(e
 """
 
 
+def _migrate_requests(conn: sqlite3.Connection) -> None:
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(requests)").fetchall()
+    }
+    if "organization_id" not in columns:
+        conn.execute(
+            "ALTER TABLE requests ADD COLUMN organization_id "
+            "TEXT NOT NULL DEFAULT 'legacy-local'"
+        )
+    if "user_id" not in columns:
+        conn.execute(
+            "ALTER TABLE requests ADD COLUMN user_id "
+            "TEXT NOT NULL DEFAULT 'legacy-anonymous'"
+        )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_requests_organization_id "
+        "ON requests(organization_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_requests_user_id ON requests(user_id)"
+    )
+    conn.execute("PRAGMA user_version = 2")
+
+
 def get_db_path() -> str:
     return os.environ.get("USAGE_DB_PATH", DEFAULT_DB_PATH)
 
@@ -96,6 +122,7 @@ def init_db(db_path: str | None = None) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
         conn.executescript(SCHEMA_SQL)
+        _migrate_requests(conn)
         conn.commit()
 
 

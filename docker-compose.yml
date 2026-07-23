@@ -4,8 +4,8 @@
 services:
   guardrails-service:
     build: ./services/guardrails-service
-    ports:
-      - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_GUARDRAILS_PORT:-8001}:8000"
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
       interval: 5s
@@ -16,8 +16,8 @@ services:
 
   rag-cache-service:
     build: ./services/rag-cache-service
-    ports:
-      - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_CACHE_PORT:-8002}:8000"
+    expose:
+      - "8000"
     environment:
       # Semantic cache config. Chroma + HF model cache both live under /app/data
       # so a single named volume gives persistence across restarts and avoids
@@ -42,8 +42,8 @@ services:
 
   image-analyser-service:
     build: ./services/image-analyser-service
-    ports:
-      - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_IMAGE_PORT:-8003}:8000"
+    expose:
+      - "8000"
     volumes:
       - image_model_data:/root/.cache/torch
     healthcheck:
@@ -56,8 +56,8 @@ services:
 
   optimizer-service:
     build: ./services/optimizer-service
-    ports:
-      - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_OPTIMIZER_PORT:-8004}:8000"
+    expose:
+      - "8000"
     environment:
       # Layer 4 provider configuration (Ollama local + optional OpenAI).
       # host.docker.internal reaches native macOS/Windows Ollama from the container.
@@ -88,7 +88,7 @@ services:
     restart: unless-stopped
 
   n8n-init:
-    image: n8nio/n8n:${N8N_VERSION:-2.31.4}
+    image: n8nio/n8n:${N8N_VERSION:-2.31.5}
     user: node
     entrypoint: ["/bin/sh", "/workflows/bootstrap.sh"]
     environment:
@@ -99,20 +99,29 @@ services:
     restart: "no"
 
   n8n:
-    image: n8nio/n8n:${N8N_VERSION:-2.31.4}
-    # Host port 5679 (not 5678) to avoid clashing with any other n8n already
-    # running on the host. Inside the compose network n8n still listens on 5678.
-    ports:
-      - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_N8N_PORT:-5679}:5678"
+    image: n8nio/n8n:${N8N_VERSION:-2.31.5}
+    expose:
+      - "5678"
     environment:
       - N8N_SECURE_COOKIE=false
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
-      - N8N_HOST=localhost
+      - N8N_HOST=n8n
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - N8N_WEBHOOK_URL=http://localhost:${MOMIHELM_N8N_PORT:-5679}/
+      - N8N_WEBHOOK_URL=http://n8n:5678/
+      - N8N_PUBLIC_API_DISABLED=true
+      - N8N_PUBLIC_API_SWAGGERUI_DISABLED=true
+      - N8N_COMMUNITY_PACKAGES_ENABLED=false
+      - N8N_VERIFIED_PACKAGES_ENABLED=false
       - N8N_UNVERIFIED_PACKAGES_ENABLED=false
+      - N8N_TEMPLATES_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+      # Preserve existing history, but do not retain payloads for new executions.
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=none
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=none
+      - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=false
+      - EXECUTIONS_DATA_PRUNE=false
       - N8N_RUNNERS_TASK_TIMEOUT=300
       - N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES=268435456
       - N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES=1000
@@ -137,12 +146,37 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  gateway-service:
+    build: ./services/gateway-service
+    expose:
+      - "8000"
+    environment:
+      - MOMIHELM_AUTH_DB_PATH=/app/data/auth/momihelm-auth.db
+      - MOMIHELM_N8N_INTERNAL_URL=http://n8n:5678
+      - MOMIHELM_SESSION_TTL_HOURS=${MOMIHELM_SESSION_TTL_HOURS:-12}
+      - MOMIHELM_COOKIE_SECURE=${MOMIHELM_COOKIE_SECURE:-false}
+      - MOMIHELM_ALLOWED_ORIGINS=${MOMIHELM_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}
+      - MOMIHELM_MAX_PROMPT_CHARS=${MOMIHELM_MAX_PROMPT_CHARS:-100000}
+      - MOMIHELM_MAX_IMAGE_BASE64_CHARS=${MOMIHELM_MAX_IMAGE_BASE64_CHARS:-7000000}
+    volumes:
+      - auth_data:/app/data/auth
+    depends_on:
+      n8n:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
     ports:
       - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_FRONTEND_PORT:-5173}:5173"
     depends_on:
-      n8n:
+      gateway-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:5173/healthz >/dev/null 2>&1 || exit 1"]
@@ -204,6 +238,7 @@ services:
         condition: service_healthy
 
 volumes:
+  auth_data:
   n8n_data:
   rag_cache_data:
   image_model_data:

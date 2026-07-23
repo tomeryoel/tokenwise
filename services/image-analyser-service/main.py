@@ -1,6 +1,5 @@
 """image-analyser-service — PyTorch ResNet18 classification (Day 8)."""
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from analyser import (
@@ -15,13 +14,6 @@ from analyser import (
 SERVICE_NAME = "image-analyser-service"
 
 app = FastAPI(title=SERVICE_NAME)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 class AnalyseRequest(BaseModel):

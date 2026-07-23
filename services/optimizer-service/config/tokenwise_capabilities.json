@@ -1,10 +1,14 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "product": "MomiHelm",
   "implemented": [
     "Input Guardrails (deterministic safety and cost rules)",
     "Output Guardrails",
-    "Semantic Cache (sentence-transformers + Chroma, department-isolated)",
+    "Authenticated gateway (first-run owner setup + HTTP-only sessions)",
+    "Organization roles (owner / admin / member) and account provisioning",
+    "Server-enforced organization policy",
+    "Organization/user-scoped Dashboard analytics",
+    "Semantic Cache (sentence-transformers + Chroma, organization/department-isolated)",
     "LangGraph rule-based routing (not learned)",
     "Task classification",
     "Complexity scoring",
@@ -18,12 +22,12 @@
     "Usage logging to SQLite",
     "SQLite analytics for the Dashboard",
     "Offline Ragas evaluation (not in the real-time path)",
-    "PyTorch Image Analyser (ResNet18 coarse classification + visual complexity; wired in n8n)"
+    "PyTorch Image Analyser (ResNet18 coarse classification + visual complexity; wired in n8n)",
+    "Langfuse tracing (optional, privacy-safe, idempotent)"
   ],
   "partial_or_planned": [
     "Policy Intelligence runtime (Structured Policy Engine + inheritance)",
     "Policy Evidence Retrieval (POST /policy/query is currently a placeholder)",
-    "Langfuse tracing",
     "Real prompt-compression execution (recommendation only today)",
     "Cursor Connector",
     "Cross-tool connectors",

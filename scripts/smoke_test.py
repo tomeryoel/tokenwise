@@ -100,6 +100,8 @@ def _run_prompt(
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "prompt": prompt,
+        "organization_id": "release-smoke",
+        "user_id": "release-smoke",
         "policy_mode": "balanced",
         "dept_id": dept_id,
         "task_type": "release_smoke",
@@ -214,7 +216,13 @@ def main() -> int:
 
     print("[7/7] Verifying usage analytics received all terminal outcomes")
     time.sleep(0.2)
-    query = urllib.parse.urlencode({"period_days": 1, "dept_id": dept_id})
+    query = urllib.parse.urlencode(
+        {
+            "period_days": 1,
+            "organization_id": "release-smoke",
+            "dept_id": dept_id,
+        }
+    )
     summary = _request_json(f"{USAGE_URL}?{query}")
     _require(summary.get("total_requests", 0) >= 5, "usage summary is missing smoke requests")
     _require(summary.get("blocked_requests", 0) >= 1, "usage summary is missing blocked outcomes")
