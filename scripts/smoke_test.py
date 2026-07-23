@@ -43,6 +43,12 @@ class SmokeFailure(RuntimeError):
     pass
 
 
+def _safe_run_id() -> str:
+    """Return a unique release marker that cannot resemble numeric PII."""
+    digit_to_letter = str.maketrans("0123456789", "ghijklmnop")
+    return uuid.uuid4().hex[:10].translate(digit_to_letter)
+
+
 def _request_json(
     url: str,
     *,
@@ -146,7 +152,7 @@ def _validate_provider_error_contract() -> None:
 
 
 def main() -> int:
-    run_id = uuid.uuid4().hex[:10]
+    run_id = _safe_run_id()
     dept_id = f"release-smoke-{run_id}"
 
     print("[1/7] Validating provider-error workflow contract")
