@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
 import uuid
 
 from usage.coding_classifier import classify_coding_use_case
 from usage.database import get_connection
 from usage.repository import prompt_fingerprint
+from usage.scoring import (
+    DecisionEvaluation,
+    DecisionEvaluationResponse,
+    EvaluationOptions,
+    PolicyAssessment,
+    evaluate_session,
+)
 from usage.session_schemas import (
     CodingAttemptCreateRequest,
     CodingAttemptResponse,
@@ -479,3 +488,208 @@ def add_verification_event(
             (verification_id,),
         ).fetchone()
     return _verification_response(row)
+
+
+def _policy_assessment(
+    session_id: str,
+    db_path: str | None = None,
+) -> PolicyAssessment:
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                ca.attempt_number,
+                r.guardrail_status,
+                r.status AS request_status,
+                ogr.status AS output_guardrail_status
+            FROM coding_attempts ca
+            LEFT JOIN requests r ON r.request_id = ca.request_id
+            LEFT JOIN output_guardrail_results ogr
+                ON ogr.request_id = ca.request_id
+            WHERE ca.session_id = ? AND r.request_id IS NOT NULL
+            ORDER BY ca.attempt_number
+            """,
+            (session_id,),
+        ).fetchall()
+
+    if not rows:
+        return PolicyAssessment(
+            reason="No linked operational policy evidence is available.",
+        )
+
+    scores: list[float] = []
+    evidence: list[str] = []
+    for row in rows:
+        attempt = int(row["attempt_number"])
+        guardrail = (row["guardrail_status"] or "").lower()
+        request_status = (row["request_status"] or "").lower()
+        output_status = (row["output_guardrail_status"] or "").lower()
+        if request_status == "policy_violation":
+            scores.append(0.0)
+            evidence.append(f"attempt_{attempt}_policy_violation")
+            continue
+        if guardrail == "blocked" or output_status == "blocked":
+            scores.append(0.5)
+            evidence.append(f"attempt_{attempt}_policy_intervention")
+            continue
+        if guardrail in {"passed", "passed_with_redaction"}:
+            scores.append(1.0)
+            evidence.append(f"attempt_{attempt}_input_guardrail_{guardrail}")
+            if output_status:
+                evidence.append(f"attempt_{attempt}_output_guardrail_{output_status}")
+
+    if not scores:
+        return PolicyAssessment(
+            evidence=evidence,
+            reason="Linked requests do not contain a usable policy result.",
+        )
+    score = min(scores)
+    if score == 1.0:
+        reason = "All linked request policy checks passed."
+    elif score == 0.5:
+        reason = "A linked request required a documented policy intervention."
+    else:
+        reason = "A linked request contains a policy violation."
+    return PolicyAssessment(score=score, evidence=evidence, reason=reason)
+
+
+def _facts_fingerprint(
+    session: CodingSessionDetail,
+    policy: PolicyAssessment,
+) -> str:
+    facts = {
+        "session": session.model_dump(mode="json"),
+        "policy": policy.model_dump(mode="json"),
+    }
+    canonical = json.dumps(facts, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _evaluation_response(
+    row: sqlite3.Row,
+) -> DecisionEvaluationResponse:
+    evaluation = DecisionEvaluation.model_validate_json(row["evaluation_json"])
+    return DecisionEvaluationResponse(
+        **evaluation.model_dump(),
+        evaluation_id=row["evaluation_id"],
+        evaluated_at=row["created_at"],
+    )
+
+
+def evaluate_coding_session(
+    session_id: str,
+    *,
+    organization_id: str,
+    user_id: str | None = None,
+    options: EvaluationOptions | None = None,
+    db_path: str | None = None,
+) -> DecisionEvaluationResponse:
+    session = get_coding_session(
+        session_id,
+        organization_id=organization_id,
+        user_id=user_id,
+        db_path=db_path,
+    )
+    policy = _policy_assessment(session_id, db_path)
+    evaluation_options = options or EvaluationOptions()
+    evaluation = evaluate_session(
+        session,
+        policy=policy,
+        options=evaluation_options,
+    )
+    evaluation_id = _new_id("de")
+    facts_fingerprint = _facts_fingerprint(session, policy)
+    options_json = json.dumps(
+        evaluation_options.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+    with get_connection(db_path) as conn:
+        _session_row(conn, session_id, organization_id, user_id)
+        conn.execute(
+            """
+            INSERT INTO decision_evaluations (
+                evaluation_id, session_id, scoring_version,
+                facts_fingerprint, evaluation_options_json,
+                model_fit_status, model_fit_value, evidence_confidence,
+                cost_spent, cost_to_success, cost_basis,
+                fit_gap_status, fit_gap_value, power_classification,
+                evaluation_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                evaluation_id,
+                session_id,
+                evaluation.scoring_version,
+                facts_fingerprint,
+                options_json,
+                evaluation.model_fit.status,
+                evaluation.model_fit.value,
+                evaluation.model_fit.confidence,
+                evaluation.cost_to_success.cost_spent,
+                evaluation.cost_to_success.cost_to_success,
+                evaluation.cost_to_success.cost_basis,
+                evaluation.fit_gap.status,
+                evaluation.fit_gap.value,
+                evaluation.power_classification.status,
+                evaluation.model_dump_json(),
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            """
+            SELECT * FROM decision_evaluations
+            WHERE evaluation_id = ?
+            """,
+            (evaluation_id,),
+        ).fetchone()
+    return _evaluation_response(row)
+
+
+def get_coding_session_evaluation(
+    session_id: str,
+    *,
+    organization_id: str,
+    user_id: str | None = None,
+    db_path: str | None = None,
+) -> DecisionEvaluationResponse:
+    session = get_coding_session(
+        session_id,
+        organization_id=organization_id,
+        user_id=user_id,
+        db_path=db_path,
+    )
+    policy = _policy_assessment(session_id, db_path)
+    current_fingerprint = _facts_fingerprint(session, policy)
+
+    with get_connection(db_path) as conn:
+        _session_row(conn, session_id, organization_id, user_id)
+        row = conn.execute(
+            """
+            SELECT * FROM decision_evaluations
+            WHERE session_id = ?
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+
+    if row is not None and row["facts_fingerprint"] == current_fingerprint:
+        return _evaluation_response(row)
+
+    options = EvaluationOptions()
+    if row is not None:
+        try:
+            options = EvaluationOptions.model_validate_json(
+                row["evaluation_options_json"]
+            )
+        except ValueError:
+            options = EvaluationOptions()
+    return evaluate_coding_session(
+        session_id,
+        organization_id=organization_id,
+        user_id=user_id,
+        options=options,
+        db_path=db_path,
+    )

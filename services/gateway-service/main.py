@@ -683,3 +683,15 @@ async def create_verification_event(
         f"/coding/sessions/{session_id}/verification",
         payload=trusted_payload,
     )
+
+
+@app.get("/coding/sessions/{session_id}/evaluation")
+async def get_coding_session_evaluation(session_id: str, user: CurrentUser):
+    params: dict[str, Any] = {"organization_id": user.organization_id}
+    if not user.can_manage:
+        params["user_id"] = user.id
+    return await _optimizer_request(
+        "GET",
+        f"/coding/sessions/{session_id}/evaluation",
+        params=params,
+    )

@@ -155,6 +155,26 @@ CREATE TABLE IF NOT EXISTS verification_events (
     FOREIGN KEY (attempt_id) REFERENCES coding_attempts(attempt_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS decision_evaluations (
+    evaluation_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    scoring_version TEXT NOT NULL,
+    facts_fingerprint TEXT NOT NULL,
+    evaluation_options_json TEXT NOT NULL,
+    model_fit_status TEXT NOT NULL,
+    model_fit_value REAL,
+    evidence_confidence TEXT NOT NULL,
+    cost_spent REAL NOT NULL,
+    cost_to_success REAL,
+    cost_basis TEXT NOT NULL,
+    fit_gap_status TEXT NOT NULL,
+    fit_gap_value REAL,
+    power_classification TEXT NOT NULL,
+    evaluation_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES coding_sessions(session_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_requests_created_at ON requests(created_at);
 CREATE INDEX IF NOT EXISTS idx_requests_dept_id ON requests(dept_id);
 CREATE INDEX IF NOT EXISTS idx_observability_exported ON observability_exports(exported);
@@ -168,6 +188,8 @@ CREATE INDEX IF NOT EXISTS idx_coding_attempts_session
     ON coding_attempts(session_id, attempt_number);
 CREATE INDEX IF NOT EXISTS idx_verification_events_session
     ON verification_events(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_decision_evaluations_session
+    ON decision_evaluations(session_id, created_at);
 """
 
 
@@ -192,7 +214,7 @@ def _migrate_requests(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_requests_user_id ON requests(user_id)"
     )
-    conn.execute("PRAGMA user_version = 3")
+    conn.execute("PRAGMA user_version = 4")
 
 
 def get_db_path() -> str:

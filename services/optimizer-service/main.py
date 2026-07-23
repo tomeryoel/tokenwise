@@ -35,10 +35,13 @@ from usage.session_repository import (
     add_coding_attempt,
     add_verification_event,
     create_coding_session,
+    evaluate_coding_session,
     get_coding_session,
+    get_coding_session_evaluation,
     list_coding_sessions,
     update_coding_session,
 )
+from usage.scoring import DecisionEvaluationResponse, EvaluationOptions
 from usage.session_schemas import (
     CodingAttemptCreateRequest,
     CodingAttemptResponse,
@@ -292,6 +295,47 @@ def coding_session_verification(
 ):
     try:
         return add_verification_event(session_id, req)
+    except CodingSessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="coding_session_not_found") from exc
+
+
+@app.get(
+    "/coding/sessions/{session_id}/evaluation",
+    response_model=DecisionEvaluationResponse,
+)
+def coding_session_evaluation_get(
+    session_id: str,
+    organization_id: str = Query(min_length=1, max_length=200),
+    user_id: str | None = Query(default=None, min_length=1, max_length=200),
+):
+    try:
+        return get_coding_session_evaluation(
+            session_id,
+            organization_id=organization_id,
+            user_id=user_id,
+        )
+    except CodingSessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="coding_session_not_found") from exc
+
+
+@app.post(
+    "/coding/sessions/{session_id}/evaluation",
+    response_model=DecisionEvaluationResponse,
+    status_code=201,
+)
+def coding_session_evaluation_create(
+    session_id: str,
+    req: EvaluationOptions,
+    organization_id: str = Query(min_length=1, max_length=200),
+    user_id: str | None = Query(default=None, min_length=1, max_length=200),
+):
+    try:
+        return evaluate_coding_session(
+            session_id,
+            organization_id=organization_id,
+            user_id=user_id,
+            options=req,
+        )
     except CodingSessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="coding_session_not_found") from exc
 

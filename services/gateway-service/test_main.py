@@ -157,6 +157,7 @@ def test_protected_routes_require_a_session(client: TestClient):
     assert client.get("/webhook/tokenwise-usage-summary").status_code == 401
     assert client.post("/coding/sessions", json={"objective": "fix code"}).status_code == 401
     assert client.get("/coding/sessions").status_code == 401
+    assert client.get("/coding/sessions/cs-123/evaluation").status_code == 401
     assert client.put("/policy", json={"policy_mode": "balanced"}).status_code == 401
     assert client.get("/users").status_code == 401
 
@@ -188,8 +189,13 @@ def test_coding_session_gateway_enforces_identity_and_read_scope(
     listed = client.get(
         "/coding/sessions?organization_id=attacker&user_id=attacker"
     )
+    evaluation = client.get(
+        "/coding/sessions/cs-123/evaluation"
+        "?organization_id=attacker&user_id=attacker"
+    )
 
     assert created.status_code == 201
+    assert evaluation.status_code == 201
     trusted = calls[0]["payload"]
     assert trusted["organization_id"] == setup["user"]["organization_id"]
     assert trusted["user_id"] == setup["user"]["id"]
@@ -198,6 +204,9 @@ def test_coding_session_gateway_enforces_identity_and_read_scope(
     assert calls[1]["params"] == {
         "organization_id": setup["user"]["organization_id"],
         "limit": 50,
+    }
+    assert calls[2]["params"] == {
+        "organization_id": setup["user"]["organization_id"],
     }
 
 
@@ -358,6 +367,20 @@ def test_owner_can_create_member_with_user_scoped_dashboard(
     assert response.status_code == 200
     assert captured["params"] == {
         "period_days": 30,
+        "organization_id": member["organization_id"],
+        "user_id": member["id"],
+    }
+
+    optimizer_call = {}
+
+    async def fake_optimizer(method, path, *, payload=None, params=None):
+        optimizer_call.update({"method": method, "path": path, "params": params})
+        return Response(content="{}", media_type="application/json")
+
+    monkeypatch.setattr(main, "_optimizer_request", fake_optimizer)
+    evaluation = client.get("/coding/sessions/cs-member/evaluation")
+    assert evaluation.status_code == 200
+    assert optimizer_call["params"] == {
         "organization_id": member["organization_id"],
         "user_id": member["id"],
     }

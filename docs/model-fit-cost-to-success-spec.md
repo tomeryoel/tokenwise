@@ -77,6 +77,8 @@ MomiHelm must not claim that it:
 - Running a second model for every normal production request.
 - Replacing deterministic tests, builds, lint, or type checks with an LLM judge.
 - Claiming production-grade causal recommendations from a small dataset.
+- Public-network deployment during the academic MVP; localhost is the accepted
+  demonstration surface.
 
 ## 4. Units of measurement
 

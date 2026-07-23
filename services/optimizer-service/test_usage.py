@@ -103,8 +103,9 @@ def test_database_initialization(tmp_db):
     assert "coding_attempts" in tables
     assert "context_snapshots" in tables
     assert "verification_events" in tables
+    assert "decision_evaluations" in tables
     assert {"organization_id", "user_id"} <= request_columns
-    assert schema_version == 3
+    assert schema_version == 4
 
 
 def test_identity_migration_preserves_legacy_rows():

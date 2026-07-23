@@ -20,6 +20,7 @@ from usage.session_repository import (
     add_coding_attempt,
     add_verification_event,
     create_coding_session,
+    get_coding_session_evaluation,
     get_coding_session,
     list_coding_sessions,
     update_coding_session,
@@ -324,3 +325,111 @@ def test_internal_session_api_enforces_scope(api_client: TestClient):
     assert cross_tenant.status_code == 404
     assert corrected.status_code == 200
     assert corrected.json()["confirmed_task_type"] == "bug_investigation"
+
+
+def test_evaluation_is_versioned_cached_and_refreshed_with_new_evidence(tmp_db):
+    created = create_coding_session(session_request(), db_path=tmp_db)
+    attempt = add_coding_attempt(
+        created.session_id,
+        CodingAttemptCreateRequest(
+            organization_id="org-a",
+            user_id="user-a",
+            request_id="r-evaluation",
+            executed_tier="balanced",
+            provider="openai",
+            model="test-model",
+            actual_api_cost=0.004,
+        ),
+        db_path=tmp_db,
+    )
+    add_verification_event(
+        created.session_id,
+        VerificationCreateRequest(
+            organization_id="org-a",
+            user_id="user-a",
+            attempt_id=attempt.attempt_id,
+            verification_type="tests",
+            source="automated",
+            status="passed",
+        ),
+        db_path=tmp_db,
+    )
+    update_coding_session(
+        created.session_id,
+        CodingSessionUpdateRequest(status="succeeded"),
+        organization_id="org-a",
+        user_id="user-a",
+        db_path=tmp_db,
+    )
+
+    first = get_coding_session_evaluation(
+        created.session_id,
+        organization_id="org-a",
+        user_id="user-a",
+        db_path=tmp_db,
+    )
+    cached = get_coding_session_evaluation(
+        created.session_id,
+        organization_id="org-a",
+        user_id="user-a",
+        db_path=tmp_db,
+    )
+    assert first.evaluation_id == cached.evaluation_id
+    assert first.scoring_version == "model-fit-v1"
+    assert first.model_fit.status == "provisional"
+    assert {"cost_efficiency", "policy"} <= set(
+        first.model_fit.missing_components
+    )
+
+    add_verification_event(
+        created.session_id,
+        VerificationCreateRequest(
+            organization_id="org-a",
+            user_id="user-a",
+            attempt_id=attempt.attempt_id,
+            verification_type="user_acceptance",
+            source="user",
+            status="passed",
+        ),
+        db_path=tmp_db,
+    )
+    refreshed = get_coding_session_evaluation(
+        created.session_id,
+        organization_id="org-a",
+        user_id="user-a",
+        db_path=tmp_db,
+    )
+
+    assert refreshed.evaluation_id != first.evaluation_id
+    assert refreshed.model_fit.confidence == "high"
+    with sqlite3.connect(tmp_db) as conn:
+        count = conn.execute(
+            """
+            SELECT COUNT(*) FROM decision_evaluations
+            WHERE session_id = ?
+            """,
+            (created.session_id,),
+        ).fetchone()[0]
+    assert count == 2
+
+
+def test_internal_evaluation_api_is_tenant_scoped(api_client: TestClient):
+    created = api_client.post(
+        "/coding/sessions",
+        json=session_request().model_dump(),
+    )
+    session_id = created.json()["session_id"]
+
+    owner = api_client.get(
+        f"/coding/sessions/{session_id}/evaluation",
+        params={"organization_id": "org-a", "user_id": "user-a"},
+    )
+    cross_tenant = api_client.get(
+        f"/coding/sessions/{session_id}/evaluation",
+        params={"organization_id": "org-b", "user_id": "user-a"},
+    )
+
+    assert owner.status_code == 200
+    assert owner.json()["scoring_version"] == "model-fit-v1"
+    assert owner.json()["model_fit"]["status"] == "unavailable"
+    assert cross_tenant.status_code == 404
