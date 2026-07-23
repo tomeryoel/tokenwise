@@ -10,7 +10,7 @@ observability stack wired around the real end-to-end request path.
 ```mermaid
 flowchart TB
     subgraph L1 [Layer 1 - User Interface]
-        UI["React + Vite + TypeScript
+        UI["React + TypeScript, served by Nginx
         Playground / Dashboard / Admin"]
     end
 
@@ -44,7 +44,7 @@ flowchart TB
     N8N --> GR
     N8N --> RAG
     N8N --> OPT
-    N8N -. "when has_image" .-> IMG
+    N8N -->|"when has_image"| IMG
     OPT --> OLLAMA
     OPT -. "when configured" .-> OPENAI
     N8N -->|"answer + Decision Receipt"| UI
@@ -69,20 +69,26 @@ sequenceDiagram
         G-->>N: {pass:false, reason}
         N->>N: Prepare blocked response
     else input passed
-        N->>C: POST /cache/lookup (dept_id filtered)
-        alt cache hit (confidence >= threshold)
-            C-->>N: {hit:true, confidence, answer, entry_id}
-            N->>G: POST /check/output (cached answer)
-            N->>N: Prepare cached response
-        else cache miss
-            C-->>N: {hit:false, confidence}
-            N->>O: POST /agent/run
-            O-->>N: {selected_tier, tokens, cost, cost_saved}
-            N->>O: POST /providers/execute
-            O-->>N: real answer + usage metadata
-            N->>G: POST /check/output (model answer)
-            N->>C: POST /cache/store (best-effort, safe answer)
-            N->>N: Prepare model response
+        alt image attached
+            N->>N: Skip semantic cache
+            N->>O: POST /agent/run (vision path)
+            N->>N: Return structured local image analysis
+        else text request
+            N->>C: POST /cache/lookup (dept_id filtered)
+            alt cache hit (confidence >= threshold)
+                C-->>N: {hit:true, confidence, answer, entry_id}
+                N->>G: POST /check/output (cached answer)
+                N->>N: Prepare cached response
+            else cache miss
+                C-->>N: {hit:false, confidence}
+                N->>O: POST /agent/run
+                O-->>N: {selected_tier, tokens, cost, cost_saved}
+                N->>O: POST /providers/execute
+                O-->>N: real answer + usage metadata
+                N->>G: POST /check/output (model answer)
+                N->>C: POST /cache/store (best-effort, safe answer)
+                N->>N: Prepare model response
+            end
         end
     end
     N->>O: POST /usage/log (terminal facts)
@@ -113,8 +119,8 @@ flowchart TB
 
     R -->|guardrail blocked| RJ[reject_path]
     R -->|cache hit >= 0.88| CA[cache_path]
+    R -->|image attached| VI[vision_path]
     R -->|require_local / sensitive| LO[local_only_path]
-    R -->|image complexity >= 0.5| VI[vision_path]
     R -->|otherwise| PM[apply_policy_mode]
 
     PM --> C{should_recommend_compression}
@@ -144,8 +150,10 @@ docker compose run --rm --no-deps optimizer-service \
 **Path priority (in `route_request_path`):**
 1. `reject_path` - guardrail blocked (defensive; n8n normally short-circuits first).
 2. `cache_path` - cache hit with confidence >= 0.88 (defensive; normally short-circuited).
-3. `local_only_path` - `require_local_model` / sensitive: tier `local`, `local_only=true`, `allow_external=false`, no external fallback.
-4. `vision_path` - `has_image` and image complexity >= 0.5: tier `vision`, premium multimodal fallback.
+3. `vision_path` - every `has_image` request: tier `vision`, structured local
+   analysis, with privacy flags preserved.
+4. `local_only_path` - sensitive text request: tier `local`,
+   `local_only=true`, `allow_external=false`, no external fallback.
 5. `standard_optimization_path` - everything else.
 
 **Standard path** runs `apply_policy_mode` then a conditional compression edge:
@@ -201,9 +209,9 @@ in [langfuse-observability.md](langfuse-observability.md).
 
 | Layer / concern | Status in skeleton |
 |---|---|
-| React UI (Playground/Dashboard/Admin) | Real (minimal) |
-| n8n orchestration workflow | Real wiring; Provider Execute calls Ollama (re-import workflow after JSON changes) |
-| 4 FastAPI services + /health | Real services, mock responses |
+| React UI (Playground/Dashboard/Admin) | Real production build served by Nginx |
+| n8n orchestration workflow | Real wiring; automatically imported/published before n8n starts |
+| 4 FastAPI services + /health | Real services with health-checked startup ordering |
 | Guardrails logic | Real (Day 3: rules + regex, input & output) |
 | Semantic cache / embeddings | Real (Day 4: MiniLM + ChromaDB, cosine, dept isolation) |
 | LangGraph optimizer decision | Real (Day 5: multi-node LangGraph, deterministic rules) |
@@ -282,16 +290,18 @@ commercial roadmap, risks) is specified in
 `image-analyser-service` runs **real CPU PyTorch inference** with torchvision
 `resnet18` (`IMAGENET1K_V1` weights). It maps ImageNet top-k labels into coarse
 MomiHelm classes (`screenshot`, `diagram`, `chart`, `document_photo`) and a
-`visual_complexity` score used by LangGraph `vision_path` when complexity ≥ 0.5.
+`visual_complexity` score reported as routing evidence.
 
 - Endpoint: `POST /analyse` with optional `image_base64` (max 5 MiB decoded).
-- Model loads once per process; first startup may download pretrained weights.
+- Model loads once per process; first use may download pretrained weights into
+  the persistent `image_model_data` volume.
 - This is **image classification**, not OCR and not multimodal LLM understanding.
 - Multimodal provider vision-tier execution is intentionally not implemented;
   vision-path requests return structured local analysis in the Decision Receipt.
 
-n8n flow when `has_image=true`: Guardrails → Image Analyser → Optimizer (skips
-semantic cache) → vision or standard path → usage logging.
+n8n flow when `has_image=true`: Guardrails -> Image Analyser -> Optimizer
+(skips semantic cache) -> vision path -> usage logging. An attachment never
+falls through to a text provider that cannot see it.
 
 ### Deferred hardening (not Day 8)
 

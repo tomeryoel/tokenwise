@@ -11,7 +11,9 @@ then reports the savings.
 > **semantic cache (Day 4)**, **LangGraph optimizer (Day 5)**, **Layer 4
 > provider execution (Day 6)**, **usage DB + Dashboard metrics (Day 7)**,
 > **PyTorch image analysis (Day 8)**, and **privacy-safe Langfuse tracing (Day 9)**
-> are now real.
+> are now real. **Day 12 release readiness** adds automatic workflow bootstrap,
+> health-based startup, loopback-only networking, production frontend serving,
+> and a product-level smoke test.
 
 > **Brand migration:** MomiHelm is the product name. Existing lowercase
 > `tokenwise` webhook paths, database filenames, Docker resources, environment
@@ -45,7 +47,7 @@ flowchart TB
     N8N --> GR
     N8N --> RAG
     N8N --> OPT
-    N8N -. later .-> IMG
+    N8N -->|when an image is attached| IMG
     OPT --> OLLAMA
     OPT -. when configured .-> OPENAI
     OPT -. privacy-safe terminal trace .-> LF
@@ -73,7 +75,9 @@ preview, document ingestion + approval, MVP scope, and commercial roadmap) is sp
 tokenwise/
   docker-compose.yml          # core application stack
   docker-compose.langfuse.yml # optional self-hosted Langfuse override
+  .env.example                # local ports and provider configuration
   .env.langfuse.example       # placeholder-only Langfuse configuration
+  momihelm / momihelm.ps1     # lifecycle commands for macOS/Linux and Windows
   README.md
   docs/architecture.md        # diagrams + what is real vs mocked
   docs/langfuse-observability.md # Day 9 setup, privacy, and operations
@@ -84,26 +88,72 @@ tokenwise/
     image-analyser-service/   # FastAPI: /health /analyse
     optimizer-service/        # FastAPI: /agent/run /providers/* /usage/* /observability/*
   n8n/
-    tokenwise-skeleton.workflow.json  # import into n8n
-    README.md                          # n8n setup instructions
-  frontend/                   # React + Vite + TypeScript (Playground/Dashboard/Admin)
+    tokenwise-skeleton.workflow.json  # automatically imported and published
+    bootstrap.sh                      # idempotent one-shot workflow bootstrap
+    README.md                          # n8n operations and recovery
+  frontend/                   # React + TypeScript build served by Nginx
+  scripts/smoke_test.py       # product-level release smoke test
 ```
 
-## Prerequisites (Windows)
+## Prerequisites
 
-- Docker Desktop (running)
-- That's it for the docker path. (Node.js only needed if you run the frontend
-  outside Docker.)
+- Docker Desktop, installed and running.
+- Git, to clone the repository.
+- One model provider:
+  - Ollama installed locally (recommended for the academic MVP), or
+  - OpenAI enabled and configured in `.env`.
+- Approximately 9 GB free for a first local installation. The core images use
+  roughly 4 GB and `llama3.1:latest` is approximately 4.6 GB.
 
-## Run the core stack (PowerShell)
+Node.js and Python are not required on the host for the Docker path.
 
-From the repository root:
+## Quick start
+
+### macOS / Linux
+
+```bash
+git clone https://github.com/tomeryoel/tokenwise.git
+cd tokenwise
+./momihelm doctor
+./momihelm start
+```
+
+### Windows PowerShell
 
 ```powershell
-docker compose up --build
+git clone https://github.com/tomeryoel/tokenwise.git
+Set-Location tokenwise
+.\momihelm.ps1 doctor
+.\momihelm.ps1 start
 ```
 
-This starts:
+`doctor` creates an ignored local `.env` from `.env.example`, then validates
+Docker, Compose, the selected provider, the Ollama model, and the Compose
+configuration. `start` can pull a missing Ollama model after warning about the
+download size. It then:
+
+1. builds the committed source,
+2. imports and publishes both n8n workflows automatically,
+3. starts services in health-checked dependency order,
+4. waits for the production frontend, and
+5. opens MomiHelm at http://127.0.0.1:5173.
+
+All application ports bind to `127.0.0.1` by default and are not exposed to the
+local network. Change `MOMIHELM_HOST` in `.env` only for a deliberate remote
+deployment.
+
+### Lifecycle commands
+
+| Action | macOS / Linux | Windows PowerShell |
+|---|---|---|
+| Diagnose setup | `./momihelm doctor` | `.\momihelm.ps1 doctor` |
+| Start | `./momihelm start` | `.\momihelm.ps1 start` |
+| Status | `./momihelm status` | `.\momihelm.ps1 status` |
+| Follow logs | `./momihelm logs` | `.\momihelm.ps1 logs` |
+| Release smoke test | `./momihelm smoke` | `.\momihelm.ps1 smoke` |
+| Stop, preserve data | `./momihelm stop` | `.\momihelm.ps1 stop` |
+
+The running stack exposes:
 
 | Component | URL |
 |---|---|
@@ -114,8 +164,10 @@ This starts:
 | image-analyser-service | http://localhost:8003/health |
 | optimizer-service | http://localhost:8004/health |
 
-Then import + activate the n8n workflow (one-time) as described in
-[n8n/README.md](n8n/README.md).
+For advanced use, `docker compose up -d --build` still works directly; the
+`n8n-init` one-shot service performs workflow import and publication. The
+lifecycle commands are recommended because they also validate the provider and
+wait for readiness.
 
 ## Add Langfuse observability (Day 9, optional)
 
@@ -144,7 +196,21 @@ trace stages, and troubleshooting are in
 
 ## Test it
 
-### 1. Health checks (PowerShell)
+### 1. Automated release smoke test
+
+```bash
+./momihelm smoke
+```
+
+```powershell
+.\momihelm.ps1 smoke
+```
+
+The smoke test verifies the provider-error contract, new text execution,
+semantic cache reuse, PII redaction/local routing, prompt-injection blocking,
+low-complexity image handling, and usage analytics.
+
+### 2. Health checks (PowerShell)
 
 ```powershell
 Invoke-RestMethod http://localhost:8001/health
@@ -155,7 +221,7 @@ Invoke-RestMethod http://localhost:8004/health
 
 Each returns `{"status":"ok","service":"..."}`.
 
-### 2. End-to-end through n8n (PowerShell)
+### 3. End-to-end through n8n (PowerShell)
 
 ```powershell
 $body = @{ prompt = "How do I reset my password?"; policy_mode = "balanced" } | ConvertTo-Json
@@ -170,13 +236,13 @@ Returns `{ answer, receipt }` where `receipt` contains `guardrail_status`,
 `cache_status`, `selected_tier`, `estimated_tokens`, `estimated_cost`,
 `optimization_reason`, `cost_saved`.
 
-### 3. From the UI
+### 4. From the UI
 
 Open http://localhost:5173, type a prompt in **Playground**, pick a policy mode,
 click **Run with MomiHelm**, and read the answer + Decision Receipt.
 
-> If the n8n workflow is not imported or active, the UI reports the real pipeline
-> error and never invents a mock answer.
+> Workflow import and publication are automatic. If a service or provider fails,
+> the UI reports the real pipeline outcome and never invents a mock answer.
 
 ## Semantic cache (Day 4)
 
@@ -192,7 +258,7 @@ The `rag-cache-service` is a **real** semantic cache:
 - Sensitive requests (`contains_sensitive_data=true`, e.g. PII) are never searched
   or stored.
 
-On a cache hit, n8n **skips the optimizer and mock model**, runs the cached answer
+On a cache hit, n8n **skips the optimizer and model provider**, runs the cached answer
 through the output guardrail, and returns it with `savings_source=semantic_cache`.
 On a miss, the model path runs and the safe final answer is stored (best-effort).
 
@@ -236,8 +302,8 @@ packaging decision (four-service architecture preserved).
 - **OpenAI (optional):** Responses API, enabled only when
   `ENABLE_OPENAI_PROVIDER=true` and `OPENAI_API_KEY` is set. Disabled safely
   when not configured.
-- **Never commit API keys.** Use `services/optimizer-service/.env.example` as
-  a template only.
+- **Never commit API keys.** Use the root `.env` copied from `.env.example`;
+  `.env` is gitignored.
 
 Provider health: `GET http://localhost:8004/providers/health`
 
@@ -325,7 +391,8 @@ for the canonical reviewed report.
 
 - Prompt compression is recommended only (not executed).
 - Vision-tier multimodal model execution (classification runs locally; provider
-  vision tier is not executed — MomiHelm returns structured local analysis).
+  vision tier is not executed - every attachment returns structured, honest
+  local analysis and never falls through to a text model that cannot see it).
 - Policy Intelligence runtime (Policy Center, Policy Evidence Retrieval,
   inheritance) is **documentation only** — `POST /policy/query` remains a
   placeholder returning `{"policies": []}`. See
@@ -340,7 +407,7 @@ PyTorch image analyser + Playground upload (Day 8), privacy-safe Langfuse tracin
 
 ```powershell
 cd frontend
-npm install
+npm ci
 Copy-Item .env.example .env
 npm run dev
 ```

@@ -75,7 +75,7 @@ services:
     restart: unless-stopped
     depends_on: *langfuse-dependencies
     ports:
-      - "3000:3000"
+      - "${MOMIHELM_HOST:-127.0.0.1}:3000:3000"
     environment:
       <<: *langfuse-environment
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?Set LANGFUSE_NEXTAUTH_SECRET}
@@ -116,7 +116,7 @@ services:
       MINIO_ROOT_USER: ${LANGFUSE_MINIO_ROOT_USER:?Set LANGFUSE_MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_ROOT_PASSWORD:?Set LANGFUSE_MINIO_ROOT_PASSWORD}
     ports:
-      - "9090:9000"
+      - "${MOMIHELM_HOST:-127.0.0.1}:9090:9000"
     volumes:
       - langfuse_minio_data:/data
     healthcheck:

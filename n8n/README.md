@@ -1,82 +1,107 @@
-# n8n Setup (walking skeleton)
+# MomiHelm n8n Operations
 
-The workflow file `tokenwise-skeleton.workflow.json` implements Layer 2:
+The gateway workflow implements Layer 2:
 
-`Webhook -> Normalize -> Guardrails -> Cache -> Optimizer -> Provider Execute -> Output Guardrails -> Cache Store -> Build Response -> Respond to Webhook`
+`Webhook -> Normalize -> Guardrails -> Cache/Image -> Optimizer -> Provider -> Output Guardrails -> Cache Store -> Usage Log -> Response`
 
-Cache hits and blocked inputs short-circuit before provider execution.
+Cache hits and blocked inputs short-circuit before provider execution. Image
+attachments always use the image-aware local analysis path.
 
-## Import and activate
+## Automatic bootstrap
 
-1. Start the stack: from the repo root run `docker compose up --build`.
-2. Open n8n at http://localhost:5679 and complete the first-run owner setup
-   (local account; nothing leaves your machine).
-3. Top-right menu -> **Import from File** -> choose
-   `n8n/tokenwise-skeleton.workflow.json`.
-4. Click **Save**, then toggle **Active** (top-right) so the production webhook
-   URL is live.
+Normal installation does not require opening the n8n editor or importing files
+manually. `docker compose up` starts the one-shot `n8n-init` service before n8n.
+It:
 
-### Re-import after workflow JSON changes (Day 6+)
+1. mounts both committed workflow JSON files read-only,
+2. imports them with their stable IDs,
+3. publishes the current versions, and
+4. exits successfully before n8n starts.
 
-When `tokenwise-skeleton.workflow.json` changes in git, the running n8n container
-does **not** pick it up automatically. Re-import and publish:
+The stable workflow IDs are:
 
-```powershell
-docker cp n8n/tokenwise-skeleton.workflow.json tokenwise-n8n-1:/tmp/tokenwise-workflow.json
-docker exec tokenwise-n8n-1 n8n import:workflow --input=/tmp/tokenwise-workflow.json
-docker exec tokenwise-n8n-1 n8n publish:workflow --id=tokenwiseskeleton
-docker restart tokenwise-n8n-1
-```
+- Gateway: `tokenwiseskeleton`
+- Usage summary: `tokenwiseusagesummary`
 
-Also import the usage-summary webhook (Day 7 Dashboard and Day 10 ROI):
+The production webhook URLs remain:
 
-```powershell
-docker cp n8n/tokenwise-usage-summary.workflow.json tokenwise-n8n-1:/tmp/usage-summary.json
-docker exec tokenwise-n8n-1 n8n import:workflow --input=/tmp/usage-summary.json
-docker exec tokenwise-n8n-1 n8n publish:workflow --id=tokenwiseusagesummary
-docker restart tokenwise-n8n-1
-```
-
-Only one workflow (`tokenwiseskeleton`) should be active for `/webhook/tokenwise`.
-Import deactivates the previous version automatically. The n8n named volume is
-preserved.
-
-The active webhook URL is:
-
-```
+```text
 http://localhost:5679/webhook/tokenwise
-```
-
-The read-only usage summary webhook is:
-
-```
 http://localhost:5679/webhook/tokenwise-usage-summary
 ```
 
-It forwards `period_days`, `dept_id`, and the optional positive
-`operating_cost_usd` ROI scenario to the optimizer service.
+The React frontend uses an Nginx same-origin `/api` proxy, so browser requests
+do not require permissive cross-origin access to n8n.
 
-(When the workflow is NOT active you can still use the test URL
-`http://localhost:5679/webhook-test/tokenwise`, but you must click
-"Execute workflow" in the editor for each call. Activating is easier.)
+## Recommended lifecycle
 
-## Test it directly (PowerShell)
+macOS/Linux:
+
+```bash
+./momihelm start
+./momihelm status
+./momihelm smoke
+```
+
+Windows PowerShell:
+
+```powershell
+.\momihelm.ps1 start
+.\momihelm.ps1 status
+.\momihelm.ps1 smoke
+```
+
+The start command stops n8n before bootstrap updates its SQLite database. Never
+run the importer concurrently with a running n8n process.
+
+## Re-import after workflow development
+
+The normal `start` command re-imports and publishes committed workflow changes.
+For an explicit recovery cycle:
+
+```bash
+docker compose stop frontend n8n
+docker compose run --rm --no-deps n8n-init
+docker compose up -d n8n frontend
+```
+
+The same commands work in PowerShell. The named `n8n_data` volume is preserved.
+The importer uses stable IDs, so it updates the intended workflows rather than
+creating a second production webhook path.
+
+## Optional editor access
+
+n8n is available at http://127.0.0.1:5679. The first time you open its editor,
+n8n may ask you to create a local owner account. This is optional for normal
+MomiHelm usage because the workflows are already imported and published.
+
+## Direct webhook test
+
+PowerShell:
 
 ```powershell
 $body = @{ prompt = "How do I reset my password?"; policy_mode = "balanced" } | ConvertTo-Json
 Invoke-RestMethod -Uri "http://localhost:5679/webhook/tokenwise" -Method Post -Body $body -ContentType "application/json"
 ```
 
-You should get back `{ answer, receipt }`.
+macOS/Linux:
 
-## Notes / known skeleton limitations
+```bash
+curl -fsS -X POST http://localhost:5679/webhook/tokenwise \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"How do I reset my password?","policy_mode":"balanced"}'
+```
 
-- The HTTP nodes call the services by their docker-compose service names
-  (e.g. `http://guardrails-service:8000`). This only resolves **inside** the
-  docker network, which is correct because n8n runs in the same compose stack.
-- CORS: the Webhook node sets `allowedOrigins: *` and the Respond node adds an
-  `Access-Control-Allow-Origin: *` header so the React dev server can call it
-  from the browser.
-- Provider execution calls `POST http://optimizer-service:8000/providers/execute`
-  (real Ollama local model; optional OpenAI when configured). There is no Mock
-  Model fallback node.
+The response contains `{ answer, receipt }`.
+
+## Operational notes
+
+- n8n is pinned through `N8N_VERSION` in `.env`; do not switch to `latest`
+  without rerunning the full release smoke test.
+- HTTP nodes use Docker service names such as
+  `http://guardrails-service:8000`; those names resolve only inside the Compose
+  network by design.
+- Provider execution calls the real optimizer provider endpoint. There is no
+  mock-answer fallback.
+- `n8n-init` is expected to show `Exited (0)` after startup because it is a
+  successful one-shot service.

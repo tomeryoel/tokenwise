@@ -1,0 +1,208 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$ROOT_DIR"
+
+ENV_FILE="$ROOT_DIR/.env"
+ENV_EXAMPLE="$ROOT_DIR/.env.example"
+
+say() {
+    printf '%s\n' "$*"
+}
+
+fail() {
+    say "MomiHelm: $*" >&2
+    exit 1
+}
+
+ensure_env() {
+    if [ ! -f "$ENV_FILE" ]; then
+        cp "$ENV_EXAMPLE" "$ENV_FILE"
+        say "Created .env from .env.example."
+    fi
+}
+
+load_env() {
+    ensure_env
+    set -a
+    # The file is created locally from the trusted project template.
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
+}
+
+require_docker() {
+    command -v docker >/dev/null 2>&1 ||
+        fail "Docker was not found. Install and start Docker Desktop first."
+    docker compose version >/dev/null 2>&1 ||
+        fail "Docker Compose is unavailable. Update Docker Desktop."
+    docker info >/dev/null 2>&1 ||
+        fail "Docker is installed but its engine is not running."
+}
+
+start_ollama_if_possible() {
+    command -v ollama >/dev/null 2>&1 || return 1
+
+    case "$(uname -s 2>/dev/null || true)" in
+        Darwin)
+            if command -v open >/dev/null 2>&1; then
+                open -a Ollama >/dev/null 2>&1 || true
+            fi
+            ;;
+        Linux)
+            nohup ollama serve >/tmp/momihelm-ollama.log 2>&1 &
+            ;;
+    esac
+
+    attempts=0
+    while [ "$attempts" -lt 15 ]; do
+        if curl -fsS "${OLLAMA_HOST_URL:-http://localhost:11434}/api/tags" >/dev/null 2>&1; then
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 1
+    done
+    return 1
+}
+
+check_provider() {
+    pull_missing=${1:-false}
+    openai_enabled=${ENABLE_OPENAI_PROVIDER:-false}
+
+    if [ "$openai_enabled" = "true" ]; then
+        [ -n "${OPENAI_API_KEY:-}" ] ||
+            fail "ENABLE_OPENAI_PROVIDER=true but OPENAI_API_KEY is empty in .env."
+        say "Provider check: OpenAI is configured."
+        return 0
+    fi
+
+    command -v curl >/dev/null 2>&1 ||
+        fail "curl is required for the local Ollama readiness check."
+
+    ollama_url=${OLLAMA_HOST_URL:-http://localhost:11434}
+    if ! tags=$(curl -fsS "$ollama_url/api/tags" 2>/dev/null); then
+        say "Ollama is not responding at $ollama_url. Attempting to start it..."
+        start_ollama_if_possible ||
+            fail "Install and start Ollama, then run this command again: https://ollama.com/download"
+        tags=$(curl -fsS "$ollama_url/api/tags")
+    fi
+
+    model=${OLLAMA_LOCAL_MODEL:-llama3.1:latest}
+    if printf '%s' "$tags" | grep -F "$model" >/dev/null 2>&1; then
+        say "Provider check: Ollama is ready with $model."
+        return 0
+    fi
+
+    if [ "$pull_missing" = "true" ] && command -v ollama >/dev/null 2>&1; then
+        say "The model $model is missing. Downloading it now (approximately 4.6 GB)..."
+        ollama pull "$model"
+        return 0
+    fi
+
+    fail "Ollama is running but $model is missing. Run: ollama pull $model"
+}
+
+warn_disk_space() {
+    available_kb=$(df -Pk "$ROOT_DIR" 2>/dev/null | awk 'NR == 2 { print $4 }')
+    if [ -n "${available_kb:-}" ] && [ "$available_kb" -lt 10485760 ]; then
+        say "Warning: less than 10 GB is available. A fresh local installation may need about 9 GB."
+    fi
+}
+
+wait_for_frontend() {
+    host=${MOMIHELM_HOST:-127.0.0.1}
+    port=${MOMIHELM_FRONTEND_PORT:-5173}
+    url="http://$host:$port/healthz"
+    attempts=0
+
+    while [ "$attempts" -lt 60 ]; do
+        if curl -fsS "$url" >/dev/null 2>&1; then
+            say "MomiHelm is ready at http://$host:$port"
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 2
+    done
+
+    docker compose ps
+    fail "MomiHelm did not become ready in time. Run: ./momihelm logs"
+}
+
+open_frontend() {
+    [ "${MOMIHELM_NO_OPEN:-0}" = "1" ] && return 0
+    url="http://${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_FRONTEND_PORT:-5173}"
+    if command -v open >/dev/null 2>&1; then
+        open "$url" >/dev/null 2>&1 || true
+    elif command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$url" >/dev/null 2>&1 || true
+    fi
+}
+
+doctor() {
+    load_env
+    require_docker
+    warn_disk_space
+    check_provider false
+    docker compose config --quiet
+    say "Configuration check: Docker Compose is valid."
+    say "MomiHelm doctor passed."
+}
+
+start() {
+    load_env
+    require_docker
+    warn_disk_space
+    check_provider true
+
+    # n8n must be stopped before the one-shot importer updates its SQLite database.
+    docker compose stop frontend n8n >/dev/null 2>&1 || true
+    docker compose up -d --build
+    wait_for_frontend
+    docker compose ps
+    open_frontend
+}
+
+stop() {
+    require_docker
+    docker compose down
+    say "MomiHelm stopped. Persistent data was preserved."
+}
+
+status() {
+    require_docker
+    docker compose ps
+}
+
+smoke() {
+    require_docker
+    docker compose --profile tools run --rm --no-deps release-smoke
+}
+
+show_help() {
+    cat <<'EOF'
+MomiHelm local commands
+
+  ./momihelm doctor   Check Docker, provider, model, and configuration
+  ./momihelm start    Build, start, initialize workflows, and open MomiHelm
+  ./momihelm status   Show service and health status
+  ./momihelm logs     Follow service logs
+  ./momihelm smoke    Run the end-to-end release smoke test
+  ./momihelm stop     Stop services while preserving data
+EOF
+}
+
+command=${1:-help}
+case "$command" in
+    doctor) doctor ;;
+    start) start ;;
+    status) status ;;
+    logs)
+        require_docker
+        exec docker compose logs --tail=100 -f
+        ;;
+    smoke) smoke ;;
+    stop) stop ;;
+    help|-h|--help) show_help ;;
+    *) fail "Unknown command '$command'. Run ./momihelm help." ;;
+esac

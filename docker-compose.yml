@@ -5,13 +5,19 @@ services:
   guardrails-service:
     build: ./services/guardrails-service
     ports:
-      - "8001:8000"
+      - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_GUARDRAILS_PORT:-8001}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     restart: unless-stopped
 
   rag-cache-service:
     build: ./services/rag-cache-service
     ports:
-      - "8002:8000"
+      - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_CACHE_PORT:-8002}:8000"
     environment:
       # Semantic cache config. Chroma + HF model cache both live under /app/data
       # so a single named volume gives persistence across restarts and avoids
@@ -26,75 +32,124 @@ services:
       - HF_HUB_DISABLE_TELEMETRY=1
     volumes:
       - rag_cache_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     restart: unless-stopped
 
   image-analyser-service:
     build: ./services/image-analyser-service
     ports:
-      - "8003:8000"
+      - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_IMAGE_PORT:-8003}:8000"
+    volumes:
+      - image_model_data:/root/.cache/torch
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     restart: unless-stopped
 
   optimizer-service:
     build: ./services/optimizer-service
     ports:
-      - "8004:8000"
+      - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_OPTIMIZER_PORT:-8004}:8000"
     environment:
       # Layer 4 provider configuration (Ollama local + optional OpenAI).
-      # host.docker.internal reaches native Windows Ollama from the container.
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      - OLLAMA_LOCAL_MODEL=llama3.1:latest
-      - OLLAMA_CHEAP_MODEL=llama3.1:latest
-      - OLLAMA_BALANCED_MODEL=llama3.1:latest
-      - OLLAMA_REQUEST_TIMEOUT_SECONDS=120
-      - ENABLE_OPENAI_PROVIDER=false
-      - OPENAI_API_KEY=
-      - OPENAI_BASE_URL=https://api.openai.com/v1
-      - OPENAI_CHEAP_MODEL=
-      - OPENAI_BALANCED_MODEL=
-      - OPENAI_PREMIUM_MODEL=
-      - OPENAI_REQUEST_TIMEOUT_SECONDS=60
+      # host.docker.internal reaches native macOS/Windows Ollama from the container.
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_LOCAL_MODEL=${OLLAMA_LOCAL_MODEL:-llama3.1:latest}
+      - OLLAMA_CHEAP_MODEL=${OLLAMA_CHEAP_MODEL:-llama3.1:latest}
+      - OLLAMA_BALANCED_MODEL=${OLLAMA_BALANCED_MODEL:-llama3.1:latest}
+      - OLLAMA_REQUEST_TIMEOUT_SECONDS=${OLLAMA_REQUEST_TIMEOUT_SECONDS:-120}
+      - ENABLE_OPENAI_PROVIDER=${ENABLE_OPENAI_PROVIDER:-false}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_CHEAP_MODEL=${OPENAI_CHEAP_MODEL:-}
+      - OPENAI_BALANCED_MODEL=${OPENAI_BALANCED_MODEL:-}
+      - OPENAI_PREMIUM_MODEL=${OPENAI_PREMIUM_MODEL:-}
+      - OPENAI_REQUEST_TIMEOUT_SECONDS=${OPENAI_REQUEST_TIMEOUT_SECONDS:-60}
       - MODEL_PRICING_CONFIG_PATH=/app/config/model_pricing.json
       - USAGE_DB_PATH=/app/data/usage/tokenwise.db
     volumes:
       - usage_data:/app/data/usage
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     restart: unless-stopped
 
+  n8n-init:
+    image: n8nio/n8n:${N8N_VERSION:-2.31.4}
+    user: node
+    entrypoint: ["/bin/sh", "/workflows/bootstrap.sh"]
+    environment:
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n:/workflows:ro
+    restart: "no"
+
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:${N8N_VERSION:-2.31.4}
     # Host port 5679 (not 5678) to avoid clashing with any other n8n already
     # running on the host. Inside the compose network n8n still listens on 5678.
     ports:
-      - "5679:5678"
+      - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_N8N_PORT:-5679}:5678"
     environment:
       - N8N_SECURE_COOKIE=false
-      - N8N_RUNNERS_ENABLED=true
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_HOST=localhost
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://localhost:5679/
-      # Allow the browser (React dev server) to call the webhook directly.
-      - N8N_CORS_ALLOW_ORIGIN=*
+      - N8N_WEBHOOK_URL=http://localhost:${MOMIHELM_N8N_PORT:-5679}/
+      - N8N_UNVERIFIED_PACKAGES_ENABLED=false
+      - N8N_RUNNERS_TASK_TIMEOUT=300
+      - N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES=268435456
+      - N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES=1000
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
-      - guardrails-service
-      - rag-cache-service
-      - image-analyser-service
-      - optimizer-service
+      n8n-init:
+        condition: service_completed_successfully
+      guardrails-service:
+        condition: service_healthy
+      rag-cache-service:
+        condition: service_healthy
+      image-analyser-service:
+        condition: service_healthy
+      optimizer-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:5678/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
     restart: unless-stopped
 
   frontend:
     build: ./frontend
     ports:
-      - "5173:5173"
-    environment:
-      # Browser calls the same-origin Vite proxy, which forwards /api requests to n8n.
-      - VITE_N8N_WEBHOOK_URL=/api/webhook/tokenwise
-      - VITE_USAGE_SUMMARY_URL=/api/webhook/tokenwise-usage-summary
+      - "${MOMIHELM_HOST:-127.0.0.1}:${MOMIHELM_FRONTEND_PORT:-5173}:5173"
     depends_on:
-      - n8n
+      n8n:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:5173/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     restart: unless-stopped
 
   # --- One-off offline Ragas evaluation runner (profile: evaluation) ----------
@@ -125,10 +180,31 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - n8n
-      - optimizer-service
+      n8n:
+        condition: service_healthy
+      optimizer-service:
+        condition: service_healthy
+
+  # One-off product-level release smoke test. It runs only when requested:
+  #   docker compose --profile tools run --rm release-smoke
+  release-smoke:
+    image: python:3.11-slim
+    profiles: ["tools"]
+    environment:
+      - MOMIHELM_WEBHOOK_URL=http://n8n:5678/webhook/tokenwise
+      - MOMIHELM_USAGE_URL=http://n8n:5678/webhook/tokenwise-usage-summary
+      - MOMIHELM_WORKFLOW_PATH=/workflows/tokenwise-skeleton.workflow.json
+      - MOMIHELM_SMOKE_TIMEOUT_SECONDS=180
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./n8n:/workflows:ro
+    command: ["python", "/scripts/smoke_test.py"]
+    depends_on:
+      n8n:
+        condition: service_healthy
 
 volumes:
   n8n_data:
   rag_cache_data:
+  image_model_data:
   usage_data:

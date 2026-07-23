@@ -15,7 +15,7 @@ a production service and **never** part of the real-time request path.
 | **Ragas** | Offline **evaluation** of answer quality (semantic similarity, relevancy, factual correctness, custom rubric) | This directory, run on demand |
 | **RAG** | Retrieval-augmented generation (retrieve documents → ground an answer) | Not implemented in the generation path; do not confuse with Ragas |
 | **Semantic Cache** | Runtime cost optimization: returns a stored answer for a similar prompt | `rag-cache-service` (production) |
-| **Langfuse** | Runtime tracing/observability of requests | Not implemented yet (roadmap) |
+| **Langfuse** | Optional runtime tracing/observability of requests | Implemented as the Day 9 opt-in Compose stack |
 | **Usage Analytics** | Aggregated cost/usage dashboard from the usage DB | optimizer-service + n8n + React Dashboard |
 
 Ragas answers "**is the answer good?**" offline; it is neither RAG, nor the
@@ -192,9 +192,9 @@ See the limitations section of any generated `report.md` /
 `docs/evaluation/ragas-evaluation-report.md`. In short: small curated dataset;
 same local model may act as generator and judge (evaluator bias); local API cost
 is zero but infrastructure cost is not modeled; modeled costs are illustrative;
-OpenAI disabled; prompt compression, Policy Intelligence runtime, and Langfuse
-are not implemented yet. PyTorch image analysis is implemented (Day 8). Results
-are an academic-MVP demonstration, not production-grade assurance.
+OpenAI disabled; actual prompt rewriting and Policy Evidence Retrieval are not
+implemented. PyTorch image analysis and optional Langfuse tracing are implemented.
+Results are an academic-MVP demonstration, not production-grade assurance.
 
 ## Deferred hardening (product-QA cache)
 
@@ -202,7 +202,7 @@ MomiHelm product-QA answers may require either Semantic Cache bypass or
 capability-version-aware cache keys, because stale cached product answers could
 predate capability-grounding updates. Not implemented in Day 8.
 
-## Next roadmap step
+## Current roadmap position
 
-After Day 8 Image Analyser: Langfuse tracing, then integration/benchmark, then
-the professional Figma UI.
+The project is in Day 12 local release hardening. See the root `README.md` for
+the supported one-command setup, readiness checks, and release smoke test.
