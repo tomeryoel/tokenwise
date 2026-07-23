@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import time
@@ -15,7 +16,14 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    EmailStr,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from database import (
     Principal,
@@ -184,6 +192,59 @@ class VerificationCreateRequest(BaseModel):
     @classmethod
     def trim_verification_text(cls, value: str | None) -> str | None:
         return " ".join(value.split()) if value else None
+
+
+class CodingContextInput(BaseModel):
+    primary_language: str | None = Field(default=None, max_length=80)
+    repository_size: Literal["small", "medium", "large", "unknown"] = "unknown"
+    files_supplied: int = Field(default=0, ge=0, le=10_000)
+    test_files_supplied: int = Field(default=0, ge=0, le=10_000)
+    has_error_details: bool = False
+    has_acceptance_criteria: bool = False
+    has_relevant_tests: bool = False
+    approximate_context_tokens: int = Field(default=0, ge=0)
+    context_source: Literal[
+        "manual",
+        "playground_attachment",
+        "connector",
+    ] = "manual"
+    privacy_classification: Literal[
+        "standard",
+        "sensitive",
+        "restricted",
+    ] = "standard"
+
+    @field_validator("primary_language")
+    @classmethod
+    def normalize_language(cls, value: str | None) -> str | None:
+        normalized = " ".join(value.split()).lower() if value else None
+        return normalized or None
+
+
+class CodingRunMetadata(BaseModel):
+    coding_session_id: str = Field(min_length=1, max_length=200)
+    recommended_workflow: Literal[
+        "direct",
+        "plan",
+        "agent",
+        "debug",
+        "review",
+        "unknown",
+    ] = "unknown"
+    executed_workflow: Literal[
+        "direct",
+        "plan",
+        "agent",
+        "debug",
+        "review",
+        "unknown",
+    ] = "unknown"
+    context: CodingContextInput = Field(default_factory=CodingContextInput)
+
+    @field_validator("coding_session_id")
+    @classmethod
+    def trim_session_id(cls, value: str) -> str:
+        return value.strip()
 
 
 class UserResponse(BaseModel):
@@ -530,6 +591,144 @@ async def _optimizer_request(
     )
 
 
+def _response_payload(response: Response) -> object | None:
+    try:
+        return json.loads(response.body)
+    except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+        return None
+
+
+def _payload_record(payload: object) -> dict[str, Any] | None:
+    if isinstance(payload, dict):
+        return payload
+    if (
+        isinstance(payload, list)
+        and payload
+        and isinstance(payload[0], dict)
+    ):
+        return payload[0]
+    return None
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _integer(value: object) -> int:
+    number = _number(value)
+    return max(0, int(number)) if number is not None else 0
+
+
+async def _validate_coding_session(
+    metadata: CodingRunMetadata,
+    user: Principal,
+) -> Response | None:
+    response = await _optimizer_request(
+        "GET",
+        f"/coding/sessions/{metadata.coding_session_id}",
+        params={
+            "organization_id": user.organization_id,
+            "user_id": user.id,
+        },
+    )
+    if response.status_code != 200:
+        return response
+    record = _payload_record(_response_payload(response))
+    if record is None:
+        return JSONResponse(
+            status_code=502,
+            content={"detail": "invalid_intelligence_response"},
+        )
+    if record.get("status") not in {"active", "partially_succeeded", "unverified"}:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "coding_session_is_closed"},
+        )
+    return None
+
+
+async def _record_coding_attempt(
+    *,
+    metadata: CodingRunMetadata,
+    user: Principal,
+    request_id: str,
+    upstream: Response,
+) -> Response:
+    payload = _response_payload(upstream)
+    record = _payload_record(payload)
+    receipt = record.get("receipt") if record is not None else None
+    if not isinstance(receipt, dict):
+        return upstream
+
+    if receipt.get("guardrail_status") == "blocked":
+        tracking = {
+            "session_id": metadata.coding_session_id,
+            "tracking_status": "not_recorded",
+            "reason": "blocked_before_model_execution",
+        }
+    else:
+        provider = receipt.get("provider")
+        cache_hit = receipt.get("cache_status") == "hit"
+        actual_cost = _number(receipt.get("actual_cost"))
+        if actual_cost is None and cache_hit:
+            actual_cost = 0.0
+        attempt_payload = {
+            "organization_id": user.organization_id,
+            "user_id": user.id,
+            "request_id": request_id,
+            "recommended_tier": receipt.get("selected_tier"),
+            "requested_tier": (
+                receipt.get("requested_tier")
+                or receipt.get("selected_tier")
+            ),
+            "executed_tier": (
+                receipt.get("executed_tier")
+                or receipt.get("selected_tier")
+            ),
+            "provider": provider if isinstance(provider, str) else None,
+            "model": (
+                receipt.get("model")
+                if isinstance(receipt.get("model"), str)
+                else None
+            ),
+            "recommended_workflow": metadata.recommended_workflow,
+            "executed_workflow": metadata.executed_workflow,
+            "actual_api_cost": actual_cost,
+            "modeled_local_cost": None,
+            "latency_ms": _integer(receipt.get("latency_ms")),
+            "context": metadata.context.model_dump(),
+        }
+        attempt_response = await _optimizer_request(
+            "POST",
+            f"/coding/sessions/{metadata.coding_session_id}/attempts",
+            payload=attempt_payload,
+        )
+        attempt = _payload_record(_response_payload(attempt_response))
+        if attempt_response.status_code == 201 and attempt is not None:
+            tracking = {
+                "session_id": metadata.coding_session_id,
+                "tracking_status": "recorded",
+                "attempt_id": attempt.get("attempt_id"),
+                "attempt_number": attempt.get("attempt_number"),
+            }
+        else:
+            tracking = {
+                "session_id": metadata.coding_session_id,
+                "tracking_status": "unavailable",
+                "reason": "attempt_persistence_failed",
+            }
+
+    if record is None:
+        return upstream
+    record["coding_session"] = tracking
+    return JSONResponse(
+        status_code=upstream.status_code,
+        content=payload,
+    )
+
+
 @app.post("/webhook/tokenwise")
 async def run_momihelm(request: Request, user: CurrentUser):
     try:
@@ -550,20 +749,48 @@ async def run_momihelm(request: Request, user: CurrentUser):
     ):
         raise HTTPException(status_code=413, detail="image_too_large")
 
+    coding_metadata = None
+    if body.get("coding_session_id") is not None:
+        try:
+            coding_metadata = CodingRunMetadata.model_validate(body)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="invalid_coding_session_metadata",
+            ) from exc
+        invalid_session = await _validate_coding_session(coding_metadata, user)
+        if invalid_session is not None:
+            return invalid_session
+
+    request_id = f"r-{uuid.uuid4().hex}"
     trusted_body = dict(body)
     trusted_body.update(
         {
-            "request_id": f"r-{uuid.uuid4().hex}",
+            "request_id": request_id,
             "organization_id": user.organization_id,
             "user_id": user.id,
             "dept_id": user.department_id,
             "policy_mode": user.policy_mode,
         }
     )
-    return await _upstream_request(
+    if coding_metadata is not None:
+        trusted_body.update(coding_metadata.model_dump())
+    upstream = await _upstream_request(
         "POST",
         "/webhook/tokenwise",
         payload=trusted_body,
+    )
+    if (
+        coding_metadata is None
+        or upstream.status_code < 200
+        or upstream.status_code >= 300
+    ):
+        return upstream
+    return await _record_coding_attempt(
+        metadata=coding_metadata,
+        user=user,
+        request_id=request_id,
+        upstream=upstream,
     )
 
 

@@ -295,6 +295,127 @@ def test_gateway_overrides_untrusted_identity_and_policy(
     assert trusted["request_id"].startswith("r-")
 
 
+def test_coding_run_validates_session_and_records_trusted_attempt(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setup = setup_owner(client).json()
+    optimizer_calls = []
+    upstream_payload = {}
+
+    async def fake_optimizer(method, path, *, payload=None, params=None):
+        optimizer_calls.append(
+            {"method": method, "path": path, "payload": payload, "params": params}
+        )
+        if method == "GET":
+            return Response(
+                content='{"session_id":"cs-123","status":"active"}',
+                media_type="application/json",
+            )
+        return Response(
+            content=(
+                '{"attempt_id":"ca-123","session_id":"cs-123",'
+                '"attempt_number":1}'
+            ),
+            media_type="application/json",
+            status_code=201,
+        )
+
+    async def fake_upstream(method, path, *, payload=None, params=None):
+        upstream_payload.update(payload)
+        return Response(
+            content=(
+                '{"answer":"Use a failing test first.","receipt":{'
+                '"guardrail_status":"passed","cache_status":"miss",'
+                '"selected_tier":"cheap","requested_tier":"cheap",'
+                '"executed_tier":"cheap","provider":"ollama",'
+                '"model":"llama3.1:latest","actual_cost":0,'
+                '"latency_ms":1250}}'
+            ),
+            media_type="application/json",
+        )
+
+    monkeypatch.setattr(main, "_optimizer_request", fake_optimizer)
+    monkeypatch.setattr(main, "_upstream_request", fake_upstream)
+    response = client.post(
+        "/webhook/tokenwise",
+        json={
+            "prompt": "Fix the failing checkout test",
+            "coding_session_id": "cs-123",
+            "recommended_workflow": "debug",
+            "executed_workflow": "debug",
+            "context": {
+                "primary_language": "Python",
+                "repository_size": "medium",
+                "files_supplied": 3,
+                "test_files_supplied": 1,
+                "has_error_details": True,
+                "has_relevant_tests": True,
+            },
+            "organization_id": "attacker",
+            "user_id": "attacker",
+        },
+    )
+
+    assert response.status_code == 200
+    tracking = response.json()["coding_session"]
+    assert tracking == {
+        "session_id": "cs-123",
+        "tracking_status": "recorded",
+        "attempt_id": "ca-123",
+        "attempt_number": 1,
+    }
+    expected_identity = {
+        "organization_id": setup["user"]["organization_id"],
+        "user_id": setup["user"]["id"],
+    }
+    assert optimizer_calls[0]["params"] == expected_identity
+    attempt_payload = optimizer_calls[1]["payload"]
+    assert attempt_payload["organization_id"] == expected_identity["organization_id"]
+    assert attempt_payload["user_id"] == expected_identity["user_id"]
+    assert attempt_payload["request_id"] == upstream_payload["request_id"]
+    assert attempt_payload["executed_tier"] == "cheap"
+    assert attempt_payload["recommended_workflow"] == "debug"
+    assert attempt_payload["context"]["primary_language"] == "python"
+    assert upstream_payload["organization_id"] == expected_identity["organization_id"]
+    assert upstream_payload["user_id"] == expected_identity["user_id"]
+
+
+def test_closed_coding_session_is_rejected_before_model_execution(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setup_owner(client)
+    upstream_called = False
+
+    async def fake_optimizer(method, path, *, payload=None, params=None):
+        return Response(
+            content='{"session_id":"cs-closed","status":"succeeded"}',
+            media_type="application/json",
+        )
+
+    async def fake_upstream(method, path, *, payload=None, params=None):
+        nonlocal upstream_called
+        upstream_called = True
+        return Response(content="{}", media_type="application/json")
+
+    monkeypatch.setattr(main, "_optimizer_request", fake_optimizer)
+    monkeypatch.setattr(main, "_upstream_request", fake_upstream)
+    response = client.post(
+        "/webhook/tokenwise",
+        json={
+            "prompt": "Try another change",
+            "coding_session_id": "cs-closed",
+            "recommended_workflow": "debug",
+            "executed_workflow": "debug",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "coding_session_is_closed"
+    assert upstream_called is False
+
+
 def test_owner_dashboard_is_forced_to_organization_scope(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

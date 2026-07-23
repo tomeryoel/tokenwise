@@ -170,6 +170,17 @@ def _event_label(event: VerificationResponse) -> str:
     return f"{event.verification_type}_{event.status}"
 
 
+def _is_deterministic(event: VerificationResponse) -> bool:
+    return (
+        event.verification_type in DETERMINISTIC_TYPES
+        and event.source in {"automated", "connector"}
+    )
+
+
+def _is_user_feedback(event: VerificationResponse) -> bool:
+    return event.source == "user" or event.verification_type == "user_acceptance"
+
+
 def _outcome_events(session: CodingSessionDetail) -> list[VerificationResponse]:
     if not session.attempts:
         return list(session.verification_events)
@@ -185,9 +196,7 @@ def _evidence_confidence(
     events: list[VerificationResponse],
 ) -> EvidenceConfidence:
     usable = [event for event in events if event.status != "skipped"]
-    has_deterministic = any(
-        event.verification_type in DETERMINISTIC_TYPES for event in usable
-    )
+    has_deterministic = any(_is_deterministic(event) for event in usable)
     has_acceptance = any(
         event.verification_type in ACCEPTANCE_TYPES for event in usable
     )
@@ -198,7 +207,11 @@ def _evidence_confidence(
         return "high"
     if has_deterministic or (has_acceptance and has_evaluator):
         return "medium"
-    if has_acceptance or has_evaluator:
+    if (
+        has_acceptance
+        or has_evaluator
+        or any(_is_user_feedback(event) for event in usable)
+    ):
         return "low"
     return "insufficient"
 
@@ -218,12 +231,15 @@ def _outcome_and_quality(
     deterministic = [
         event
         for event in usable
-        if event.verification_type in DETERMINISTIC_TYPES
+        if _is_deterministic(event)
     ]
     softer = [
         event
         for event in usable
-        if event.verification_type in ACCEPTANCE_TYPES | EVALUATOR_TYPES
+        if (
+            _is_user_feedback(event)
+            or event.verification_type in ACCEPTANCE_TYPES | EVALUATOR_TYPES
+        )
     ]
     quality_events = deterministic or softer
     quality_values = [
@@ -239,7 +255,11 @@ def _outcome_and_quality(
 
     blocking_failure = any(
         event.status == "failed"
-        and event.verification_type in DETERMINISTIC_TYPES | ACCEPTANCE_TYPES
+        and (
+            _is_deterministic(event)
+            or _is_user_feedback(event)
+            or event.verification_type in ACCEPTANCE_TYPES
+        )
         for event in usable
     ) or any(
         event.verification_type == "rollback" and event.status == "passed"
@@ -491,8 +511,11 @@ def _attempt_failed(
         and (
             (
                 event.status == "failed"
-                and event.verification_type
-                in DETERMINISTIC_TYPES | ACCEPTANCE_TYPES
+                and (
+                    _is_deterministic(event)
+                    or _is_user_feedback(event)
+                    or event.verification_type in ACCEPTANCE_TYPES
+                )
             )
             or (
                 event.verification_type == "rollback"
@@ -517,7 +540,11 @@ def _attempt_succeeded(
         return False
     if any(
         event.status == "failed"
-        and event.verification_type in DETERMINISTIC_TYPES | ACCEPTANCE_TYPES
+        and (
+            _is_deterministic(event)
+            or _is_user_feedback(event)
+            or event.verification_type in ACCEPTANCE_TYPES
+        )
         for event in relevant
     ):
         return False

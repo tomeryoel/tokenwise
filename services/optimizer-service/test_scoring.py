@@ -179,6 +179,28 @@ def test_verified_session_with_all_components_has_final_model_fit():
     assert result.cost_to_success.time_to_success_ms == 240_000
 
 
+def test_user_reported_checks_remain_low_confidence_without_automation():
+    result = evaluate_session(
+        session(
+            status="succeeded",
+            events=[
+                verification("tests", "passed", source="user"),
+                verification(
+                    "user_acceptance",
+                    "passed",
+                    source="user",
+                ),
+            ],
+        ),
+        policy=PASSED_POLICY,
+        options=EvaluationOptions(cost_benchmark=approved_budget()),
+    )
+
+    assert result.model_fit.confidence == "low"
+    assert result.model_fit.status == "provisional"
+    assert result.model_fit.components.quality == 1
+
+
 def test_retry_costs_are_aggregated_and_observed_escalation_is_underpowered():
     result = evaluate_session(
         session(
