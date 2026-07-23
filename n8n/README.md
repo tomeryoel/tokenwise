@@ -14,9 +14,12 @@ manually. `docker compose up` starts the one-shot `n8n-init` service before n8n.
 It:
 
 1. mounts both committed workflow JSON files read-only,
-2. imports them with their stable IDs,
-3. publishes the current versions, and
-4. exits successfully before n8n starts.
+2. calculates and persists a digest of their contents,
+3. exits without touching the database when the files are unchanged,
+4. refuses changed imports if a running n8n process is detected,
+5. otherwise imports them with their stable IDs and publishes the current
+   versions, and
+6. exits successfully before n8n starts.
 
 The stable workflow IDs are:
 
@@ -53,8 +56,9 @@ Windows PowerShell:
 .\momihelm.ps1 smoke
 ```
 
-The start command stops n8n before bootstrap updates its SQLite database. Never
-run the importer concurrently with a running n8n process.
+The start command stops n8n before bootstrap updates its SQLite database. The
+bootstrap guard also rejects changed imports if n8n is reachable, preventing an
+advanced Compose command from silently removing live webhook registrations.
 
 ## Re-import after workflow development
 
@@ -70,6 +74,12 @@ docker compose up -d n8n gateway-service frontend
 The same commands work in PowerShell. The named `n8n_data` volume is preserved.
 The importer uses stable IDs, so it updates the intended workflows rather than
 creating a second production webhook path.
+
+The bootstrap lifecycle regression test can be run without Docker:
+
+```bash
+./n8n/test_bootstrap.sh
+```
 
 ## Direct webhook test
 
