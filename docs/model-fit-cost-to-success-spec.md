@@ -1,7 +1,7 @@
 # MomiHelm Model Fit and Cost-to-Success Specification
 
-Status: Proposed product and scoring contract  
-Target: First post-academic-MVP product milestone  
+Status: Implementation contract; slices 1-4 complete, slices 5-6 planned
+Target: First post-academic-MVP product milestone
 Scope: Playground vertical slice first; coding-tool connectors later
 
 ## 1. Product decision
@@ -9,34 +9,35 @@ Scope: Playground vertical slice first; coding-tool connectors later
 MomiHelm must distinguish a technically completed AI request from a successful
 coding outcome.
 
-The current product can classify a prompt, select a model tier, execute a
-provider, enforce policy, and report operational cost. It cannot yet prove that
-the selected model completed the user's coding task. This milestone adds the
-outcome and evidence layer required to make Model Fit, Fit Gap, and
-Cost-to-Success defensible product metrics.
+The pre-milestone product could classify a prompt, select a model tier, execute
+a provider, enforce policy, and report operational cost. Implemented slices 1-4
+now add coding sessions, trusted attempts, structured outcome evidence,
+evidence-qualified Model Fit and Cost-to-Success, and outcome Dashboard
+aggregates. Controlled multi-model evaluation and connector discovery remain
+planned in slices 5-6.
 
 The target product promise is:
 
 > MomiHelm helps teams learn which combination of model, workflow, context, and
 > verification produces a successful coding outcome at the lowest total cost.
 
-Until the acceptance gates in this document pass, the stronger promise is a
-vision statement rather than a description of implemented behavior.
+The team-learning promise remains a vision statement until the controlled
+evaluation and sample-size gates in this document pass.
 
 ## 2. Product truth
 
 ### 2.1 Accurate current claim
 
-> MomiHelm is a policy-aware AI gateway that classifies requests, routes them
-> across model tiers, protects sensitive data, reuses safe answers, and explains
-> the cost and performance of each routing decision.
-
-### 2.2 Target claim after this milestone
-
-> MomiHelm evaluates whether the selected model was a good fit for a coding
-> session, measures the total cost required to reach a verified outcome, and
-> recommends a better model, workflow, context, or verification strategy when
+> MomiHelm evaluates whether the selected model was a good fit for a verified
+> Playground coding session, measures the total cost required to reach that
+> outcome when cost evidence is complete, and recommends a better route when
 > sufficient evidence exists.
+
+### 2.2 Target claim after evaluation and connector evidence
+
+> MomiHelm helps teams learn which model, workflow, context, and verification
+> strategy produces the best coding outcomes at the lowest Cost-to-Success
+> across their connected AI coding tools.
 
 ### 2.3 Claims that remain prohibited
 

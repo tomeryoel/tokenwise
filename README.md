@@ -1,11 +1,12 @@
 # MomiHelm
 
-**Real-Time LLM Cost Optimization Gateway.**
+**Evidence-qualified AI coding decision intelligence.**
 
-MomiHelm is a middleware layer that sits between applications/users and LLM
-providers. Every AI request passes through MomiHelm, which optimizes it before
-it reaches a model (guardrails, semantic cache, dynamic routing, compression),
-then reports the savings.
+MomiHelm is a policy-aware AI gateway and coding decision-intelligence MVP.
+It classifies and routes requests, protects sensitive inputs, reuses safe
+answers, and explains each cost decision. In a verified Playground coding
+session, it also evaluates Model Fit, calculates Cost-to-Success when the
+evidence is complete, and produces evidence-labeled recommendations.
 
 > **Status:** four-layer end-to-end path is working. **Guardrails (Day 3)**,
 > **semantic cache (Day 4)**, **LangGraph optimizer (Day 5)**, **Layer 4
@@ -16,7 +17,9 @@ then reports the savings.
 > and a product-level smoke test. The current security release adds first-run
 > owner setup, account sign-in, HTTP-only sessions, organization roles,
 > server-enforced policy, organization/user data isolation, and private backend
-> networking.
+> networking. The coding-intelligence vertical slice now adds trusted coding
+> sessions and attempts, structured outcome verification, evidence-qualified
+> Model Fit and Cost-to-Success, and an outcome-first Dashboard.
 
 > **Brand migration:** MomiHelm is the product name. Existing lowercase
 > `tokenwise` webhook paths, database filenames, Docker resources, environment
@@ -61,6 +64,8 @@ flowchart TB
 
 See [docs/architecture.md](docs/architecture.md) for details and
 [contracts/api-contracts.md](contracts/api-contracts.md) for the API shapes.
+The implementation and product-state handoff for visual design is in
+[docs/ux-ui-designer-handoff.md](docs/ux-ui-designer-handoff.md).
 
 ## Policy Intelligence
 
@@ -85,6 +90,7 @@ tokenwise/
   momihelm / momihelm.ps1     # lifecycle commands for macOS/Linux and Windows
   README.md
   docs/architecture.md        # diagrams + what is real vs mocked
+  docs/ux-ui-designer-handoff.md # product states and visual-design contract
   docs/langfuse-observability.md # Day 9 setup, privacy, and operations
   contracts/api-contracts.md  # API contracts (v0)
     services/
@@ -95,7 +101,7 @@ tokenwise/
     optimizer-service/        # FastAPI: /agent/run /providers/* /usage/* /observability/*
   n8n/
     tokenwise-skeleton.workflow.json  # automatically imported and published
-    bootstrap.sh                      # idempotent one-shot workflow bootstrap
+    bootstrap.sh                      # guarded, idempotent workflow bootstrap
     README.md                          # n8n operations and recovery
   frontend/                   # React + TypeScript build served by Nginx
   scripts/smoke_test.py       # product-level release smoke test
@@ -139,7 +145,7 @@ configuration. `start` can pull a missing Ollama model after warning about the
 download size. It then:
 
 1. builds the committed source,
-2. imports and publishes both n8n workflows automatically,
+2. imports and publishes changed n8n workflows automatically,
 3. starts services in health-checked dependency order,
 4. waits for the production frontend, and
 5. opens MomiHelm at http://127.0.0.1:5173.
@@ -175,10 +181,12 @@ The running stack exposes:
 
 Backend health and webhook endpoints are intentionally not host-accessible.
 Use `docker compose exec <service> ...` for diagnostics. For advanced use,
-`docker compose up -d --build` still works directly; the
-`n8n-init` one-shot service performs workflow import and publication. The
-lifecycle commands are recommended because they also validate the provider and
-wait for readiness.
+`docker compose up -d --build` still works directly when the committed
+workflows are unchanged. If workflow JSON changes while n8n is already running,
+the guarded `n8n-init` service refuses to modify the live SQLite database and
+directs you to `./momihelm start` or `.\momihelm.ps1 start`. The lifecycle
+commands are recommended because they stop n8n before workflow updates,
+validate the provider, and wait for readiness.
 
 ## Add Langfuse observability (Day 9, optional)
 
@@ -233,10 +241,12 @@ Compose reports the internal services as healthy without publishing their ports.
 
 ### 3. From the UI
 
-Open http://127.0.0.1:5173, create the first owner account or sign in, type a
-prompt in **Playground**, click **Run with MomiHelm**, and read the answer plus
-Decision Receipt. Owners and admins set the server-enforced organization policy
-in **Admin**.
+Open http://127.0.0.1:5173, create the first owner account or sign in, then
+choose a **Coding session** or **Quick question** in Playground. A Coding
+session lets you review the classified objective, run one or more attempts,
+record the outcome, and inspect Model Fit and Cost-to-Success. Quick question
+returns the answer and Decision Receipt without outcome tracking. Owners and
+admins set the server-enforced organization policy in **Admin**.
 
 > Workflow import and publication are automatic. If a service or provider fails,
 > the UI reports the real pipeline outcome and never invents a mock answer.
@@ -340,6 +350,22 @@ prompts, PII, or secrets. n8n is configured not to retain new successful, failed
 or manual execution payloads. Existing local execution history is preserved
 until its owner explicitly approves deletion.
 
+## Coding decision intelligence
+
+Verified Playground coding sessions persist privacy-safe attempts, context
+characteristics, verification events, and versioned decision evaluations.
+`GET /coding/analytics/summary` turns the latest evaluation for each in-scope
+session into the Dashboard's Model Fit, Cost-to-Success, route-suitability, task
+breakdown, and top-recommendation views.
+
+The authenticated gateway injects organization scope. Members are restricted to
+their own user ID; managers may apply a department filter. Every aggregate
+discloses its sample size and evidence status. Missing scores and incomplete
+local compute cost remain unavailable instead of being represented as zero.
+
+The Dashboard deliberately separates coding decision intelligence from the
+request-level usage and cost-avoidance analytics below it.
+
 Development reset (optional): `python -m usage.reset_db --force`
 
 ## Langfuse observability (Day 9)
@@ -404,7 +430,8 @@ for the canonical reviewed report.
 Real: guardrails (Day 3), semantic cache (Day 4), LangGraph optimizer (Day 5),
 Layer 4 provider execution (Day 6), usage DB + Dashboard (Day 7),
 PyTorch image analyser + Playground upload (Day 8), privacy-safe Langfuse tracing
-(Day 9), offline Ragas evaluation, MomiHelm product-answer grounding.
+(Day 9), offline Ragas evaluation, MomiHelm product-answer grounding, and the
+verified Playground coding-intelligence vertical slice.
 
 ## Frontend without Docker (optional)
 
