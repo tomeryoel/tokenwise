@@ -1,5 +1,5 @@
 {
-  "version": "1.2.0",
+  "version": "1.3.0",
   "product": "MomiHelm",
   "implemented": [
     "Input Guardrails (deterministic safety and cost rules)",
@@ -8,6 +8,11 @@
     "Organization roles (owner / admin / member) and account provisioning",
     "Server-enforced organization policy",
     "Organization/user-scoped Dashboard analytics",
+    "Coding sessions with trusted attempts, workflow/context characteristics, and structured user verification",
+    "Evidence-qualified Model Fit after a Playground coding session is verified",
+    "Cost-to-Success across recorded attempts when a successful session has complete cost evidence",
+    "Fit Gap and overpowered/underpowered classification only when comparison evidence qualifies",
+    "Outcome Dashboard with Model Fit, Cost-to-Success, evidence coverage, task breakdowns, and recommendations",
     "Semantic Cache (sentence-transformers + Chroma, organization/department-isolated)",
     "LangGraph rule-based routing (not learned)",
     "Task classification",
@@ -31,8 +36,9 @@
     "Real prompt-compression execution (recommendation only today)",
     "Cursor Connector",
     "Cross-tool connectors",
-    "Model Fit",
-    "Cost-to-Success intelligence"
+    "Automated coding verification from tests, builds, lint, and type checks through connectors",
+    "Controlled multi-model benchmark expansion and evidence-based product claim gate",
+    "Team- and repository-specific learned recommendations after sufficient verified data"
   ],
   "unsupported": [
     "Real-time system-load routing",

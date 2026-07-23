@@ -31,6 +31,7 @@ const AUTH_PASSWORD_URL = "/api/auth/password";
 const POLICY_URL = "/api/policy";
 const USERS_URL = "/api/users";
 const CODING_SESSIONS_URL = "/api/coding/sessions";
+const CODING_ANALYTICS_URL = "/api/coding/analytics/summary";
 
 export interface SetupPayload {
   display_name: string;
@@ -80,6 +81,70 @@ export interface UsageSummary {
   savings_by_source: Record<string, number>;
   requests_by_policy_mode: Record<string, number>;
   savings_by_policy_mode: Record<string, number>;
+}
+
+export interface IntelligenceMetric {
+  status: "unavailable" | "provisional" | "qualified";
+  value: number | null;
+  sample_size: number;
+  eligible_sessions: number;
+  basis: string;
+  reason: string;
+}
+
+export interface DecisionIntelligenceSummary {
+  period_days: number;
+  cohort_basis: "coding_session_created_at";
+  model_fit: IntelligenceMetric;
+  cost_to_success: IntelligenceMetric;
+  coverage: {
+    total_sessions: number;
+    terminal_sessions: number;
+    evaluated_sessions: number;
+    scored_sessions: number;
+    final_sessions: number;
+    provisional_sessions: number;
+    unavailable_sessions: number;
+    automated_evidence_sessions: number;
+    complete_cost_sessions: number;
+    confidence_counts: Record<string, number>;
+    evidence_coverage_rate: number;
+  };
+  power: {
+    appropriate: number;
+    overpowered: number;
+    underpowered: number;
+    unavailable: number;
+    classified_sessions: number;
+    coverage_rate: number;
+  };
+  outcomes: {
+    active: number;
+    succeeded: number;
+    partially_succeeded: number;
+    failed: number;
+    abandoned: number;
+    unverified: number;
+  };
+  average_attempts_per_session: number;
+  task_types: Array<{
+    task_type: string;
+    sessions: number;
+    successful_sessions: number;
+    scored_sessions: number;
+    average_model_fit: number | null;
+    average_attempts: number;
+  }>;
+  top_recommendation: {
+    category: string;
+    priority: "low" | "medium" | "high";
+    evidence_status: "insufficient" | "provisional" | "qualified";
+    title: string;
+    detail: string;
+    action: string;
+    affected_sessions: number;
+    basis: string;
+  } | null;
 }
 
 export interface CodingRunInput {
@@ -141,7 +206,7 @@ export async function runPrompt(
   }
 
   if (!res.ok) {
-    throw new Error(httpFailureMessage(res.status));
+    throw new Error(await runFailureMessage(res));
   }
 
   let data: unknown;
@@ -256,6 +321,17 @@ export async function fetchUsageSummary(
   }
 }
 
+export async function fetchDecisionIntelligenceSummary(
+  deptId?: string,
+  periodDays = 30,
+): Promise<DecisionIntelligenceSummary> {
+  const params = new URLSearchParams({ period_days: String(periodDays) });
+  if (deptId) params.set("dept_id", deptId);
+  return fetchJson<DecisionIntelligenceSummary>(
+    `${CODING_ANALYTICS_URL}?${params.toString()}`,
+  );
+}
+
 export async function fetchAuthState(): Promise<AuthState> {
   return fetchJson<AuthState>(AUTH_STATE_URL);
 }
@@ -359,6 +435,18 @@ async function apiFailureMessage(response: Response): Promise<string> {
     intelligence_service_unavailable: "The coding intelligence service is temporarily unavailable.",
   };
   return messages[detail] ?? `Request failed (HTTP ${response.status}).`;
+}
+
+async function runFailureMessage(response: Response): Promise<string> {
+  try {
+    const body = await response.json() as { detail?: unknown };
+    if (body.detail === "workflow_unavailable") {
+      return `${PRODUCT_NAME}'s workflow is temporarily unavailable. Restart ${PRODUCT_NAME}, then try again.`;
+    }
+  } catch {
+    // Fall back to a status-specific message when the upstream body is not JSON.
+  }
+  return httpFailureMessage(response.status);
 }
 
 function httpFailureMessage(status: number): string {

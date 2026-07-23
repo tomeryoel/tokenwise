@@ -224,7 +224,7 @@ in [langfuse-observability.md](langfuse-observability.md).
 | Semantic cache / embeddings | Real (Day 4: MiniLM + ChromaDB, cosine, organization + dept isolation) |
 | LangGraph optimizer decision | Real (Day 5: multi-node LangGraph, deterministic rules) |
 | Usage DB / ROI analytics | Real (Day 7: SQLite in optimizer-service, Dashboard via n8n webhook) |
-| Dashboard metrics | Real (Day 7: from GET /usage/summary) |
+| Dashboard metrics | Real: evidence-qualified coding intelligence from `GET /coding/analytics/summary`, plus request operations from `GET /usage/summary` |
 | PyTorch image analysis | Real (Day 8: ResNet18 coarse classes + complexity; wired in n8n) |
 | Model provider call | Real (Day 6: Ollama local + optional OpenAI via /providers/execute) |
 | MomiHelm product-answer grounding | Real (capability SoT JSON + deterministic detector; product Q&A only) |

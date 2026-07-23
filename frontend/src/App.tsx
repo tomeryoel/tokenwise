@@ -157,7 +157,12 @@ export default function App() {
             setSession={setPlaygroundSession}
           />
         )}
-        {tab === "dashboard" && <Dashboard user={user} />}
+        {tab === "dashboard" && (
+          <Dashboard
+            user={user}
+            onStartCodingSession={() => setTab("playground")}
+          />
+        )}
         {tab === "admin" && user.can_manage && (
           <Admin user={user} onUserUpdated={updateUser} />
         )}

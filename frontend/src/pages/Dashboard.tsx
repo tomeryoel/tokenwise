@@ -1,6 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { fetchUsageSummary, type UsageSummary } from "../api";
+import {
+  fetchDecisionIntelligenceSummary,
+  fetchUsageSummary,
+  type DecisionIntelligenceSummary,
+  type UsageSummary,
+} from "../api";
 import { PRODUCT_NAME } from "../brand";
+import DashboardIntelligence from "../components/DashboardIntelligence";
 import type { AuthUser } from "../types";
 
 const PERIOD_OPTIONS = [7, 30, 90];
@@ -51,10 +57,20 @@ function sourceLabel(source: string): string {
   return SOURCE_LABELS[source] ?? source.replace(/_/g, " ");
 }
 
-export default function Dashboard({ user }: { user: AuthUser }) {
+export default function Dashboard({
+  user,
+  onStartCodingSession,
+}: {
+  user: AuthUser;
+  onStartCodingSession: () => void;
+}) {
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [intelligence, setIntelligence] =
+    useState<DecisionIntelligenceSummary | null>(null);
+  const [intelligenceLoading, setIntelligenceLoading] = useState(true);
+  const [intelligenceError, setIntelligenceError] = useState<string | null>(null);
   const [periodDays, setPeriodDays] = useState(30);
   const [departmentInput, setDepartmentInput] = useState("");
   const [appliedDepartment, setAppliedDepartment] = useState("");
@@ -91,6 +107,28 @@ export default function Dashboard({ user }: { user: AuthUser }) {
     refreshKey,
     user.can_manage,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIntelligenceLoading(true);
+    setIntelligenceError(null);
+    fetchDecisionIntelligenceSummary(
+      user.can_manage ? appliedDepartment || undefined : undefined,
+      periodDays,
+    )
+      .then((data) => {
+        if (!cancelled) setIntelligence(data);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setIntelligenceError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIntelligenceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appliedDepartment, periodDays, refreshKey, user.can_manage]);
 
   function applyDepartmentFilter(event: FormEvent) {
     event.preventDefault();
@@ -140,26 +178,29 @@ export default function Dashboard({ user }: { user: AuthUser }) {
 
   const maxSourceSavings = Math.max(0, ...savingsSources.map((row) => row.savings));
   const maxPolicyRequests = Math.max(0, ...policyRows.map((row) => row.requests));
+  const hasAnalyticsError = Boolean(error || intelligenceError);
+  const anyAnalyticsLoading = loading || intelligenceLoading;
+  const hasPreviousAnalytics = Boolean(summary || intelligence);
 
   return (
     <div className="page dashboard-page">
       <header className="dashboard-header">
         <div>
-          <span className="page-eyebrow">Live usage intelligence</span>
+          <span className="page-eyebrow">Outcome-based AI intelligence</span>
           <h1>Dashboard</h1>
           <p>
             {user.can_manage
-              ? `Organization-scoped ${PRODUCT_NAME} usage, cost avoidance, and operating behavior.`
-              : `Your ${PRODUCT_NAME} usage, cost avoidance, and operating behavior.`}
+              ? `Organization-scoped ${PRODUCT_NAME} Model Fit, Cost-to-Success, and operating evidence.`
+              : `Your ${PRODUCT_NAME} Model Fit, Cost-to-Success, and operating evidence.`}
           </p>
         </div>
-        <div className={`dashboard-live-status ${error ? "stale" : ""}`}>
+        <div className={`dashboard-live-status ${hasAnalyticsError ? "stale" : ""}`}>
           <span aria-hidden="true" />
-          {error
-            ? summary
-              ? "Previous SQLite data"
+          {hasAnalyticsError
+            ? hasPreviousAnalytics
+              ? "Partial SQLite data"
               : "Analytics unavailable"
-            : loading && summary
+            : anyAnalyticsLoading && hasPreviousAnalytics
               ? "Refreshing live data"
               : "Live SQLite data"}
         </div>
@@ -215,7 +256,7 @@ export default function Dashboard({ user }: { user: AuthUser }) {
       {error && (
         <div className="analytics-error" role="alert">
           <div>
-            <strong>Live analytics could not be refreshed</strong>
+            <strong>Operational analytics could not be refreshed</strong>
             <p>{error}</p>
             {summary && <small>The previous successful summary remains visible.</small>}
           </div>
@@ -229,6 +270,39 @@ export default function Dashboard({ user }: { user: AuthUser }) {
         </div>
       )}
 
+      {intelligenceError && (
+        <div className="analytics-error" role="alert">
+          <div>
+            <strong>Decision intelligence could not be refreshed</strong>
+            <p>{intelligenceError}</p>
+            {intelligence && (
+              <small>The previous successful intelligence summary remains visible.</small>
+            )}
+          </div>
+          <button
+            className="retry-button"
+            type="button"
+            onClick={() => setRefreshKey((key) => key + 1)}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {intelligenceLoading && !intelligence && (
+        <div className="dashboard-loading intelligence-loading" role="status">
+          <span />
+          Evaluating coding-session evidence from SQLite…
+        </div>
+      )}
+
+      {intelligence && (
+        <DashboardIntelligence
+          summary={intelligence}
+          onStartCodingSession={onStartCodingSession}
+        />
+      )}
+
       {loading && !summary && (
         <div className="dashboard-loading" role="status">
           <span />
@@ -236,10 +310,21 @@ export default function Dashboard({ user }: { user: AuthUser }) {
         </div>
       )}
 
+      {!loading && summary && (
+        <header className="operational-analytics-heading">
+          <span className="page-eyebrow">Supporting operating evidence</span>
+          <h2>Usage and cost optimization</h2>
+          <p>
+            Request-level routing, savings, safety, and latency remain visible
+            beneath the outcome-based intelligence.
+          </p>
+        </header>
+      )}
+
       {!loading && !error && summary?.total_requests === 0 && (
-        <div className="dashboard-empty">
+        <div className="dashboard-empty operational-empty">
           <span>Waiting for usage data</span>
-          <h2>No requests match this view yet</h2>
+          <h2>No operational requests match this view yet</h2>
           <p>
             Run a request through Playground or clear the department filter to
             populate this reporting period.

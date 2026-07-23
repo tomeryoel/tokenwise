@@ -780,6 +780,11 @@ async def run_momihelm(request: Request, user: CurrentUser):
         "/webhook/tokenwise",
         payload=trusted_body,
     )
+    if upstream.status_code == 404:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "workflow_unavailable"},
+        )
     if (
         coding_metadata is None
         or upstream.status_code < 200
@@ -816,6 +821,28 @@ async def usage_summary(
     return await _upstream_request(
         "GET",
         "/webhook/tokenwise-usage-summary",
+        params=params,
+    )
+
+
+@app.get("/coding/analytics/summary")
+async def coding_analytics_summary(
+    user: CurrentUser,
+    period_days: int = Query(default=30, ge=1, le=365),
+    dept_id: str | None = Query(default=None, max_length=80),
+):
+    params: dict[str, Any] = {
+        "period_days": period_days,
+        "organization_id": user.organization_id,
+    }
+    if user.can_manage:
+        if dept_id:
+            params["dept_id"] = dept_id
+    else:
+        params["user_id"] = user.id
+    return await _optimizer_request(
+        "GET",
+        "/coding/analytics/summary",
         params=params,
     )
 

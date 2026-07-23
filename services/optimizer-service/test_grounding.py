@@ -51,6 +51,9 @@ def test_implemented_planned_unsupported_separation():
         "How does MomiHelm fallback work?",
         "What is currently implemented in MomiHelm?",
         "Which signals affect MomiHelm routing?",
+        "How does MomiHelm calculate Model Fit?",
+        "When is MomiHelm Cost-to-Success available?",
+        "Does MomiHelm track verified coding sessions?",
     ],
 )
 def test_detects_tokenwise_product_questions(prompt):
@@ -101,6 +104,8 @@ def test_grounding_identifies_rule_based_routing():
     assert "policy_mode" in text
     assert "fall back" in text or "fallback" in text
     assert "general implemented decision flow" in text
+    assert "model fit and cost-to-success are implemented" in text
+    assert "before verification they remain unavailable" in text
 
 
 def test_unsupported_claims_explicitly_prohibited():
@@ -122,6 +127,19 @@ def test_current_and_planned_features_distinguished():
     assert "IMPLEMENTED" in text
     assert "PARTIAL OR PLANNED" in text
     assert "UNSUPPORTED" in text
+
+
+def test_completed_coding_intelligence_is_not_described_as_planned():
+    caps = load_capabilities(str(CAP_PATH))
+    implemented = " ".join(caps["implemented"]).lower()
+    planned = " ".join(caps["partial_or_planned"]).lower()
+
+    assert "model fit" in implemented
+    assert "cost-to-success" in implemented
+    assert "outcome dashboard" in implemented
+    assert "model fit" not in planned
+    assert "cost-to-success intelligence" not in planned
+    assert "cursor connector" in planned
 
 
 def test_compact_receipt_facts_included_when_available():

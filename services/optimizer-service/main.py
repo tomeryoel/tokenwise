@@ -26,6 +26,10 @@ from providers.openai_provider import OpenAIProvider
 from providers.schemas import ProviderExecuteRequest
 from usage.analytics import get_recent, get_summary
 from usage.database import init_db
+from usage.intelligence_analytics import (
+    DecisionIntelligenceSummary,
+    get_decision_intelligence_summary,
+)
 from usage.repository import log_usage
 from usage.schemas import UsageLogRequest, UsageLogResponse, UsageRecentResponse, UsageSummaryResponse
 from usage.session_repository import (
@@ -224,6 +228,24 @@ def coding_session_list(
         user_id=user_id,
         status=status,
         limit=limit,
+    )
+
+
+@app.get(
+    "/coding/analytics/summary",
+    response_model=DecisionIntelligenceSummary,
+)
+def coding_analytics_summary(
+    organization_id: str = Query(min_length=1, max_length=200),
+    period_days: int = Query(default=30, ge=1, le=365),
+    user_id: str | None = Query(default=None, min_length=1, max_length=200),
+    dept_id: str | None = Query(default=None, min_length=1, max_length=200),
+):
+    return get_decision_intelligence_summary(
+        organization_id=organization_id,
+        period_days=period_days,
+        user_id=user_id,
+        dept_id=dept_id,
     )
 
 

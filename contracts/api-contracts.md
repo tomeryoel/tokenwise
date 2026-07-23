@@ -42,6 +42,9 @@ browser origin are rejected.
   Managers are organization-scoped and may filter department; members are
   forcibly scoped to their own user ID. Managers also receive preserved
   pre-auth `legacy-local` usage history; those rows are never exposed to members.
+- `GET /coding/analytics/summary`: authenticated coding-intelligence proxy.
+  Managers are organization-scoped and may filter department; members are
+  forcibly scoped to their own user ID.
 
 First-run setup request:
 
@@ -452,6 +455,23 @@ when known, else `estimated_savings`. `roi_percentage` is null;
 
 ### GET /usage/recent?limit=20&organization_id=...&user_id=optional&dept_id=optional
 Privacy-safe recent requests (no prompt content).
+
+### GET /coding/analytics/summary?period_days=30&organization_id=...&user_id=optional&dept_id=optional
+Returns evidence-qualified coding-session aggregates for the Dashboard:
+
+- Average Model Fit from each in-scope session's latest non-null evaluation.
+- Average Cost-to-Success only for successful sessions with complete cost.
+- Overpowered, underpowered, appropriate, and unavailable classification counts.
+- Evaluation, automated-verification, confidence, and cost coverage.
+- Privacy-safe task-type breakdowns and a deterministic top recommendation.
+
+Each metric includes its sample size, eligible-session count, status, basis, and
+reason. Missing Model Fit or Cost-to-Success remains `null`, not zero. The cohort
+uses coding-session creation time, and old evaluations for the same session are
+not double counted. No objective text or fingerprint is returned.
+
+The browser-facing gateway route has the same path. It discards caller-supplied
+identity scope and injects the authenticated organization and, for members, user.
 
 ### GET /webhook/tokenwise-usage-summary (n8n → browser)
 Private n8n webhook proxies `GET /usage/summary`. Only the authenticated gateway

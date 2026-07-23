@@ -155,6 +155,7 @@ def test_policy_is_persisted_server_side(client: TestClient):
 def test_protected_routes_require_a_session(client: TestClient):
     assert client.post("/webhook/tokenwise", json={"prompt": "hello"}).status_code == 401
     assert client.get("/webhook/tokenwise-usage-summary").status_code == 401
+    assert client.get("/coding/analytics/summary").status_code == 401
     assert client.post("/coding/sessions", json={"objective": "fix code"}).status_code == 401
     assert client.get("/coding/sessions").status_code == 401
     assert client.get("/coding/sessions/cs-123/evaluation").status_code == 401
@@ -293,6 +294,29 @@ def test_gateway_overrides_untrusted_identity_and_policy(
     assert trusted["dept_id"] == "engineering"
     assert trusted["policy_mode"] == "balanced"
     assert trusted["request_id"].startswith("r-")
+
+
+def test_gateway_reports_missing_n8n_workflow_as_temporarily_unavailable(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setup_owner(client)
+
+    async def fake_upstream(method, path, *, payload=None, params=None):
+        return Response(
+            content='{"code":404,"message":"webhook not registered"}',
+            status_code=404,
+            media_type="application/json",
+        )
+
+    monkeypatch.setattr(main, "_upstream_request", fake_upstream)
+    response = client.post(
+        "/webhook/tokenwise",
+        json={"prompt": "Help me debug this application"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "workflow_unavailable"}
 
 
 def test_coding_run_validates_session_and_records_trusted_attempt(
@@ -437,6 +461,88 @@ def test_owner_dashboard_is_forced_to_organization_scope(
     assert captured["params"]["include_legacy"] == "true"
     assert captured["params"]["dept_id"] == "finance"
     assert captured["params"]["period_days"] == 7
+
+
+def test_owner_intelligence_dashboard_is_forced_to_organization_scope(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setup = setup_owner(client).json()
+    captured = {}
+
+    async def fake_optimizer(method, path, *, payload=None, params=None):
+        captured.update({"method": method, "path": path, "params": params})
+        return Response(content="{}", media_type="application/json")
+
+    monkeypatch.setattr(main, "_optimizer_request", fake_optimizer)
+    response = client.get(
+        "/coding/analytics/summary"
+        "?organization_id=attacker&user_id=attacker"
+        "&dept_id=finance&period_days=7"
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "method": "GET",
+        "path": "/coding/analytics/summary",
+        "params": {
+            "period_days": 7,
+            "organization_id": setup["user"]["organization_id"],
+            "dept_id": "finance",
+        },
+    }
+
+
+def test_member_intelligence_dashboard_is_forced_to_user_scope(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setup = setup_owner(client).json()
+    created = client.post(
+        "/users",
+        json={
+            "display_name": "Maya",
+            "email": "maya@example.com",
+            "password": "a different secure password",
+            "role": "member",
+            "department_id": "Customer Success",
+        },
+    )
+    assert created.status_code == 201
+    member = created.json()
+    assert member["organization_id"] == setup["user"]["organization_id"]
+
+    client.post("/auth/logout")
+    assert client.post(
+        "/auth/login",
+        json={
+            "email": "maya@example.com",
+            "password": "a different secure password",
+        },
+    ).status_code == 200
+    captured = {}
+
+    async def fake_optimizer(method, path, *, payload=None, params=None):
+        captured.update({"method": method, "path": path, "params": params})
+        return Response(content="{}", media_type="application/json")
+
+    monkeypatch.setattr(main, "_optimizer_request", fake_optimizer)
+    response = client.get(
+        "/coding/analytics/summary"
+        "?organization_id=attacker&user_id=attacker"
+        "&dept_id=finance&period_days=90"
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "method": "GET",
+        "path": "/coding/analytics/summary",
+        "params": {
+            "period_days": 90,
+            "organization_id": member["organization_id"],
+            "user_id": member["id"],
+        },
+    }
 
 
 def test_owner_can_create_member_with_user_scoped_dashboard(
