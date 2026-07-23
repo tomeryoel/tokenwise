@@ -34,6 +34,10 @@ The interface should feel like an engineering control plane, not a generic chat
 application. Outcome evidence and actionable decisions are primary. Raw usage
 analytics and technical traces are supporting information.
 
+The default experience must be understandable without opening any advanced
+section. A first-time user should be able to identify the answer, the outcome
+assessment, the cost, and the next recommended action in one scan.
+
 The designer may change the visual language, hierarchy, typography, component
 shapes, spacing, iconography, charts, and motion. The evidence semantics and
 role-based behavior in this document must remain intact.
@@ -197,12 +201,13 @@ These rules are product behavior, not placeholder copy:
 The normal user should see this information first:
 
 - one-sentence routing decision;
-- model and provider;
-- active organization policy;
-- cache hit or miss;
-- cost and savings;
-- tokens and latency;
-- safety and privacy status.
+- route: model, provider, and tier;
+- cost: execution cost and cost avoided;
+- speed: latency and tokens;
+- safety: guardrail/privacy result and cache status.
+
+The active organization policy remains visible as supporting context rather
+than a separate primary card.
 
 The following information belongs in categorized expandable sections:
 
@@ -223,11 +228,10 @@ The intended order is:
 1. Page title, reporting period, and permitted filters.
 2. Outcome question: **Was the right AI used in the right way?**
 3. Average Model Fit with evidence status and denominator.
-4. Cost-to-Success, overpowered sessions, underpowered sessions, and outcomes.
-5. Evidence coverage and confidence.
-6. Top actionable recommendation.
-7. Model Fit by coding task.
-8. Supporting request-level usage, cost, safety, latency, and ROI analytics.
+4. Cost-to-Success, sessions requiring review, and positive outcomes.
+5. Top actionable recommendation.
+6. Expandable evidence coverage, confidence, and Model Fit by coding task.
+7. Expandable request-level usage, cost, safety, latency, and ROI analytics.
 
 The current UI uses cards and text lists. The designer may introduce charts if
 the denominator and unavailable/provisional states remain explicit.
@@ -238,6 +242,8 @@ The existing dark control-plane interface is an engineering reference, not a
 final brand system. A redesign should:
 
 - feel precise, calm, and trustworthy;
+- present one primary decision per visual region;
+- keep advanced evidence collapsed until the user requests it;
 - distinguish evidence status without relying on color alone;
 - make primary actions obvious without filling the page with buttons;
 - use progressive disclosure for diagnostics;
@@ -261,6 +267,11 @@ Design and annotate at least these viewports:
 Requirements:
 
 - no horizontal page overflow at 390 px;
+- body text at 16 px or larger at the default browser scale;
+- supporting text at 14 px or larger;
+- labels and metadata at 13 px or larger;
+- no meaningful information presented at 8-11 px;
+- layouts remain usable at 200% browser zoom;
 - touch targets of at least 44 x 44 px where practical;
 - keyboard access to navigation, forms, details, and actions;
 - visible focus states;

@@ -876,7 +876,7 @@ function CodingSessionSetup({
         </label>
       </div>
 
-      <details className="context-signals" open={!continuing}>
+      <details className="context-signals">
         <summary>
           <span>
             <strong>Context characteristics</strong>

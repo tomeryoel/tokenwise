@@ -63,20 +63,20 @@ export default function ModelFitReceipt({
               : formatDuration(cost.time_to_success_ms)
           }
         />
-        <FitHighlight
-          label="Fit Gap"
-          value={
-            evaluation.fit_gap.value == null
-              ? "Unavailable"
-              : `${evaluation.fit_gap.value.toFixed(1)} points`
-          }
-          detail={evaluation.fit_gap.reason}
-        />
-        <FitHighlight
-          label="Route assessment"
-          value={humanize(evaluation.power_classification.status)}
-          detail={evaluation.power_classification.reason}
-        />
+        {evaluation.fit_gap.value != null && (
+          <FitHighlight
+            label="Fit Gap"
+            value={`${evaluation.fit_gap.value.toFixed(1)} points`}
+            detail={evaluation.fit_gap.reason}
+          />
+        )}
+        {evaluation.power_classification.status !== "unavailable" && (
+          <FitHighlight
+            label="Route assessment"
+            value={humanize(evaluation.power_classification.status)}
+            detail={evaluation.power_classification.reason}
+          />
+        )}
       </div>
 
       <details className="fit-details">
@@ -104,6 +104,17 @@ export default function ModelFitReceipt({
           <p className="fit-missing">
             Missing for a final score:{" "}
             {fit.missing_components.map(humanize).join(", ")}.
+          </p>
+        )}
+        {evaluation.fit_gap.value == null && (
+          <p className="fit-missing">
+            Fit Gap unavailable: {evaluation.fit_gap.reason}
+          </p>
+        )}
+        {evaluation.power_classification.status === "unavailable" && (
+          <p className="fit-missing">
+            Route assessment unavailable:{" "}
+            {evaluation.power_classification.reason}
           </p>
         )}
         <p className="fit-cost-note">{cost.reason}</p>

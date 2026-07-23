@@ -310,30 +310,42 @@ export default function Dashboard({
         </div>
       )}
 
-      {!loading && summary && (
-        <header className="operational-analytics-heading">
-          <span className="page-eyebrow">Supporting operating evidence</span>
-          <h2>Usage and cost optimization</h2>
-          <p>
-            Request-level routing, savings, safety, and latency remain visible
-            beneath the outcome-based intelligence.
-          </p>
-        </header>
-      )}
+      {summary && (
+        <details className="operational-details">
+          <summary>
+            <span>
+              <strong>Usage, cost, and technical metrics</strong>
+              <small>
+                {formatInteger(summary.total_requests)} requests ·{" "}
+                {formatMoney(summary.total_modeled_cost_avoidance)} modeled cost
+                avoided
+              </small>
+            </span>
+            <span>View supporting data</span>
+          </summary>
+          <div className="operational-details-content">
+            <header className="operational-analytics-heading">
+              <span className="page-eyebrow">Supporting operating evidence</span>
+              <h2>Usage and cost optimization</h2>
+              <p>
+                Request-level routing, savings, safety, and latency remain
+                available for deeper analysis.
+              </p>
+            </header>
 
-      {!loading && !error && summary?.total_requests === 0 && (
-        <div className="dashboard-empty operational-empty">
-          <span>Waiting for usage data</span>
-          <h2>No operational requests match this view yet</h2>
-          <p>
-            Run a request through Playground or clear the department filter to
-            populate this reporting period.
-          </p>
-        </div>
-      )}
+            {!loading && !error && summary.total_requests === 0 && (
+              <div className="dashboard-empty operational-empty">
+                <span>Waiting for usage data</span>
+                <h2>No operational requests match this view yet</h2>
+                <p>
+                  Run a request through Playground or clear the department
+                  filter to populate this reporting period.
+                </p>
+              </div>
+            )}
 
-      {summary && summary.total_requests > 0 && (
-        <>
+            {summary.total_requests > 0 && (
+              <>
           <section className="analytics-hero" aria-labelledby="analytics-outcome-title">
             <div className="analytics-outcome">
               <span id="analytics-outcome-title">Modeled cost avoided</span>
@@ -546,7 +558,10 @@ export default function Dashboard({
               </p>
             </div>
           </section>
-        </>
+              </>
+            )}
+          </div>
+        </details>
       )}
     </div>
   );

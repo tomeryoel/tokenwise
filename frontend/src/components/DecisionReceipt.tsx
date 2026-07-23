@@ -108,6 +108,9 @@ export default function DecisionReceipt({
           {performanceSummary && (
             <p className="decision-performance">{performanceSummary}</p>
           )}
+          <p className="decision-context">
+            {humanize(activePolicy)} policy · {cacheDetail(receipt)}
+          </p>
         </div>
         <StatusPill
           label={requestStatus.label}
@@ -117,43 +120,37 @@ export default function DecisionReceipt({
 
       <div className="decision-highlights">
         <Highlight
-          label="Model & provider"
+          label="Route"
           value={modelSummary(receipt)}
-          detail={provider}
+          detail={`${provider} · ${humanize(tier)} tier`}
           tone="info"
         />
         <Highlight
-          label="Active policy"
-          value={humanize(activePolicy)}
+          label="Cost"
+          value={costValue(receipt)}
           detail={
-            receipt.guardrail_status === "blocked"
-              ? "No model route"
-              : `${humanize(tier)} tier`
+            typeof savings === "number"
+              ? `${formatMoney(savings)} avoided`
+              : costDetail(receipt)
           }
-          tone="neutral"
-        />
-        <Highlight
-          label="Cache"
-          value={humanize(cacheStatus)}
-          detail={cacheDetail(receipt)}
-          tone={cacheTone(cacheStatus)}
-        />
-        <Highlight
-          label="Cost avoided"
-          value={formatMoney(savings)}
-          detail={costDetail(receipt)}
           tone="positive"
         />
         <Highlight
-          label={typeof receipt.latency_ms === "number" ? "Tokens & latency" : "Tokens"}
-          value={`${formatInteger(tokens)} ${receipt.actual_total_tokens != null ? "tokens" : "estimated tokens"}`}
-          detail={receipt.cache_status === "hit" ? "Model execution skipped" : formatLatency(receipt.latency_ms)}
+          label="Speed"
+          value={
+            receipt.cache_status === "hit"
+              ? "Instant reuse"
+              : formatLatency(receipt.latency_ms)
+          }
+          detail={`${formatInteger(tokens)} ${
+            receipt.actual_total_tokens != null ? "tokens" : "estimated tokens"
+          }`}
           tone="info"
         />
         <Highlight
-          label="Safety & privacy"
+          label="Safety"
           value={safetyStatus.label}
-          detail={safetyStatus.detail}
+          detail={`${safetyStatus.detail} · Cache ${humanize(cacheStatus)}`}
           tone={safetyStatus.tone}
         />
       </div>
@@ -340,10 +337,19 @@ function costDetail(receipt: DecisionReceiptData): string {
   return `${formatMoney(receipt.estimated_optimized_cost ?? receipt.estimated_cost)} estimated cost`;
 }
 
-function cacheTone(status: string): Tone {
-  if (status === "hit") return "positive";
-  if (status === "miss") return "info";
-  return "neutral";
+function costValue(receipt: DecisionReceiptData): string {
+  if (
+    receipt.cache_status === "hit" ||
+    receipt.guardrail_status === "blocked"
+  ) {
+    return "$0";
+  }
+  if (typeof receipt.actual_cost === "number") {
+    return formatMoney(receipt.actual_cost);
+  }
+  return formatMoney(
+    receipt.estimated_optimized_cost ?? receipt.estimated_cost,
+  );
 }
 
 function getSafetyStatus(receipt: DecisionReceiptData): {

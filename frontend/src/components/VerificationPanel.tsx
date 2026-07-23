@@ -137,46 +137,57 @@ export default function VerificationPanel({
         ))}
       </fieldset>
 
-      <fieldset className="verification-checks">
-        <legend>Checks performed</legend>
-        <p>
-          These are manual reports. Automated connector evidence will carry
-          stronger confidence in a later milestone.
-        </p>
-        <div className="check-grid">
-          {CHECKS.map((check) => (
-            <label key={check.type}>
-              <span>{check.label}</span>
-              <select
-                value={checks[check.type] ?? "not_run"}
-                disabled={loading}
-                onChange={(event) =>
-                  setChecks((current) => ({
-                    ...current,
-                    [check.type]: event.target.value as CheckChoice,
-                  }))
-                }
-              >
-                <option value="not_run">Not reported</option>
-                <option value="passed">Passed</option>
-                <option value="failed">Failed</option>
-              </select>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <details className="verification-evidence-details">
+        <summary>
+          <span>
+            <strong>Add verification evidence</strong>
+            <small>Optional tests, build, lint, type-check, and notes</small>
+          </span>
+          <span>Optional</span>
+        </summary>
+        <div className="verification-evidence-content">
+          <fieldset className="verification-checks">
+            <legend>Checks performed</legend>
+            <p>
+              These are manual reports. Automated connector evidence will carry
+              stronger confidence in a later milestone.
+            </p>
+            <div className="check-grid">
+              {CHECKS.map((check) => (
+                <label key={check.type}>
+                  <span>{check.label}</span>
+                  <select
+                    value={checks[check.type] ?? "not_run"}
+                    disabled={loading}
+                    onChange={(event) =>
+                      setChecks((current) => ({
+                        ...current,
+                        [check.type]: event.target.value as CheckChoice,
+                      }))
+                    }
+                  >
+                    <option value="not_run">Not reported</option>
+                    <option value="passed">Passed</option>
+                    <option value="failed">Failed</option>
+                  </select>
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
-      <label className="verification-notes">
-        <span>Optional note</span>
-        <textarea
-          rows={2}
-          maxLength={500}
-          value={details}
-          disabled={loading}
-          placeholder="What worked, or what still needs attention?"
-          onChange={(event) => setDetails(event.target.value)}
-        />
-      </label>
+          <label className="verification-notes">
+            <span>Optional note</span>
+            <textarea
+              rows={2}
+              maxLength={500}
+              value={details}
+              disabled={loading}
+              placeholder="What worked, or what still needs attention?"
+              onChange={(event) => setDetails(event.target.value)}
+            />
+          </label>
+        </div>
+      </details>
 
       {contradictory && (
         <p className="verification-inline-error" role="alert">

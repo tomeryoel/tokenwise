@@ -4013,3 +4013,475 @@ select {
     width: 100%;
   }
 }
+
+/* Simplicity and accessibility baseline */
+:root {
+  --font-meta: 0.8125rem;
+  --font-supporting: 0.875rem;
+  --font-control: 0.9375rem;
+  --font-body: 1rem;
+  font-size: clamp(16px, calc(15px + 0.25vw), 18px);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-size: var(--font-body);
+  line-height: 1.5;
+}
+
+button,
+input,
+select,
+textarea {
+  font-size: var(--font-control);
+}
+
+.content {
+  width: 100%;
+  max-width: 74rem;
+  padding: 36px 32px 72px;
+}
+
+.page h1,
+.playground-header h1,
+.dashboard-header h1 {
+  font-size: 2rem;
+}
+
+p {
+  font-size: var(--font-body);
+}
+
+small {
+  font-size: var(--font-supporting);
+  line-height: 1.5;
+}
+
+.page :is(button, input, select, textarea) {
+  font-size: var(--font-control);
+}
+
+.field-label {
+  font-size: var(--font-control);
+}
+
+.brand-lockup > span,
+.user-identity small,
+.signout-button,
+.playground-policy span,
+.playground-policy strong,
+.playground-policy small,
+.dashboard-scope span,
+.dashboard-scope strong,
+.auth-brand,
+.auth-kicker,
+.auth-proof span,
+.auth-panel-heading > span,
+.auth-form label > span,
+.auth-error,
+.auth-security-note {
+  font-size: var(--font-meta);
+}
+
+.hero-fact > span,
+.signal-card > span,
+.operation-fact > span,
+.panel-heading > span,
+.breakdown-label span,
+.breakdown-value > strong,
+.cost-basis-note > span,
+.cost-basis-note > strong,
+.roi-result > span,
+.mode-title span,
+.policy-save-state div > span,
+.policy-section-heading span,
+.policy-section-heading small,
+.team-member > div small,
+.team-role,
+.team-department,
+.team-form label > span,
+.account-profile dt,
+.account-profile dd,
+.account-password-form > div:first-child > span,
+.account-password-form label > span {
+  font-size: var(--font-meta);
+}
+
+.hero-fact > small,
+.signal-card > small,
+.panel-heading p,
+.breakdown-label strong,
+.team-member > div strong,
+.team-form > p,
+.account-profile p,
+.account-password-form > div:first-child > p,
+.account-success {
+  font-size: var(--font-supporting);
+}
+
+.team-form input,
+.account-password-form input {
+  font-size: var(--font-control);
+}
+
+.user-identity strong,
+.global-warning,
+.auth-panel-heading p {
+  font-size: var(--font-supporting);
+}
+
+.nav-btn,
+.auth-form input,
+.auth-submit {
+  font-size: var(--font-control);
+}
+
+.auth-story > p {
+  font-size: var(--font-body);
+}
+
+.page-eyebrow,
+.receipt-eyebrow,
+.status-pill,
+.dashboard-live-status,
+.intelligence-status,
+.evidence-source-pill,
+.fit-status {
+  font-size: var(--font-meta);
+}
+
+.workspace-mode-switch span,
+.classification-confidence,
+.coding-session-setup header button,
+.coding-setup-grid label > span,
+.context-grid label > span,
+.verification-notes > span,
+.verification-checks label > span,
+.context-signals > summary strong,
+.context-signals > summary small,
+.context-signals > summary > span:last-child,
+.context-checks label,
+.verification-panel legend,
+.verification-inline-error,
+.verification-submit > span,
+.fit-status-stack small,
+.fit-highlight > span,
+.fit-highlight > small,
+.fit-details > summary strong,
+.fit-details > summary small,
+.fit-details > summary > span:last-child,
+.fit-component-grid span,
+.fit-component-grid strong,
+.fit-missing,
+.fit-cost-note,
+.fit-footer span,
+.dashboard-filter-field > span,
+.roi-form label > span,
+.model-fit-label > span,
+.model-fit-label small,
+.model-fit-sample span,
+.intelligence-kpi > span,
+.intelligence-kpi > small,
+.coverage-fact > span,
+.coverage-fact > small,
+.recommendation-card-heading span,
+.task-intelligence-heading span,
+.recommendation-action span,
+.recommendation-action strong,
+.task-intelligence-row > div:first-child strong,
+.task-intelligence-row > div:first-child span,
+.task-fit-value span {
+  font-size: var(--font-meta);
+}
+
+.coding-session-setup header p,
+.verification-header p,
+.model-fit-hero p,
+.model-fit-spotlight > p,
+.recommendation-card > p,
+.operational-analytics-heading p {
+  font-size: var(--font-supporting);
+}
+
+.decision-context {
+  margin: 10px 0 0;
+  color: #7f8999;
+  font-size: var(--font-supporting);
+}
+
+.decision-highlights {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.highlight-label,
+.highlight-detail {
+  font-size: var(--font-supporting);
+}
+
+.decision-highlight strong {
+  font-size: 1.125rem;
+}
+
+.receipt-section > summary strong {
+  font-size: 1rem;
+}
+
+.receipt-section > summary small,
+.section-action,
+.receipt-section[open] .section-action::after {
+  font-size: var(--font-supporting);
+}
+
+.receipt-fact span,
+.trace-group h4 {
+  font-size: var(--font-meta);
+}
+
+.receipt-fact strong,
+.trace-source,
+.trace-group ul {
+  font-size: var(--font-supporting);
+}
+
+.verification-evidence-details {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.verification-evidence-details > summary,
+.intelligence-details > summary,
+.operational-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 2px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.verification-evidence-details > summary::-webkit-details-marker,
+.intelligence-details > summary::-webkit-details-marker,
+.operational-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.verification-evidence-details > summary > span:first-child,
+.intelligence-details > summary > span:first-child,
+.operational-details > summary > span:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.verification-evidence-details > summary strong,
+.intelligence-details > summary strong,
+.operational-details > summary strong {
+  font-size: 1rem;
+}
+
+.verification-evidence-details > summary small,
+.intelligence-details > summary small,
+.operational-details > summary small {
+  color: var(--muted);
+  font-size: var(--font-supporting);
+}
+
+.verification-evidence-details > summary > span:last-child,
+.intelligence-details > summary > span:last-child,
+.operational-details > summary > span:last-child {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: var(--font-supporting);
+  font-weight: 700;
+}
+
+.verification-evidence-details[open] > summary > span:last-child,
+.intelligence-details[open] > summary > span:last-child,
+.operational-details[open] > summary > span:last-child {
+  color: var(--muted);
+}
+
+.verification-evidence-content {
+  padding-bottom: 18px;
+}
+
+.verification-evidence-content .verification-checks {
+  margin-top: 0;
+}
+
+.fit-highlights {
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.fit-component-grid span,
+.fit-missing,
+.fit-cost-note,
+.fit-footer span {
+  font-size: var(--font-supporting);
+}
+
+.fit-component-grid strong {
+  font-size: var(--font-control);
+}
+
+.intelligence-kpi-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.intelligence-kpi,
+.intelligence-kpi:nth-child(2n),
+.intelligence-kpi:nth-last-child(-n + 2) {
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  border-bottom: 0;
+}
+
+.intelligence-kpi:last-child {
+  border-right: 0;
+}
+
+.model-fit-label > span,
+.intelligence-kpi > span,
+.coverage-fact > span,
+.recommendation-card-heading span,
+.task-intelligence-heading span,
+.recommendation-action span {
+  font-size: var(--font-meta);
+}
+
+.model-fit-sample span,
+.intelligence-kpi > small,
+.coverage-fact > small,
+.recommendation-card > small,
+.task-intelligence-heading > small,
+.task-intelligence-row > div:first-child span,
+.task-fit-value span {
+  font-size: var(--font-supporting);
+}
+
+.recommendation-card {
+  border-right: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.recommendation-action strong,
+.task-intelligence-row > div:first-child strong {
+  font-size: var(--font-control);
+}
+
+.intelligence-details > summary {
+  padding: 18px 29px;
+}
+
+.intelligence-details-content {
+  border-top: 1px solid var(--border);
+}
+
+.intelligence-coverage {
+  border-bottom: 1px solid var(--border);
+}
+
+.task-intelligence-card {
+  padding: 24px 29px 28px;
+}
+
+.operational-details {
+  margin-top: 20px;
+  overflow: hidden;
+  background: rgba(23, 26, 33, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 15px;
+}
+
+.operational-details > summary {
+  padding: 20px 22px;
+}
+
+.operational-details > summary strong {
+  font-size: 1.125rem;
+}
+
+.operational-details-content {
+  padding: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.operational-details-content > :last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .content {
+    padding: 28px 24px 64px;
+  }
+
+  .decision-highlights {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .intelligence-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .model-fit-spotlight {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .intelligence-coverage {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .coverage-fact {
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 760px) {
+  .content {
+    padding: 24px 18px 56px;
+  }
+
+  .decision-hero,
+  .intelligence-heading,
+  .verification-evidence-details > summary,
+  .intelligence-details > summary,
+  .operational-details > summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .intelligence-kpi-grid,
+  .intelligence-coverage {
+    grid-template-columns: 1fr;
+  }
+
+  .intelligence-kpi,
+  .intelligence-kpi:nth-child(2n),
+  .intelligence-kpi:nth-last-child(-n + 2) {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .intelligence-kpi:last-child,
+  .coverage-fact:last-child {
+    border-bottom: 0;
+  }
+
+  .operational-details-content {
+    padding: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .decision-highlights {
+    grid-template-columns: 1fr;
+  }
+}
