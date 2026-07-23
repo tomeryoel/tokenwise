@@ -12,7 +12,7 @@ decision to preserve the lecturer-required four FastAPI microservices.
 """
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from graph import run_optimizer
@@ -28,6 +28,28 @@ from usage.analytics import get_recent, get_summary
 from usage.database import init_db
 from usage.repository import log_usage
 from usage.schemas import UsageLogRequest, UsageLogResponse, UsageRecentResponse, UsageSummaryResponse
+from usage.session_repository import (
+    CodingAttemptConflictError,
+    CodingSessionNotFoundError,
+    CodingSessionStateError,
+    add_coding_attempt,
+    add_verification_event,
+    create_coding_session,
+    get_coding_session,
+    list_coding_sessions,
+    update_coding_session,
+)
+from usage.session_schemas import (
+    CodingAttemptCreateRequest,
+    CodingAttemptResponse,
+    CodingSessionCreateRequest,
+    CodingSessionDetail,
+    CodingSessionListResponse,
+    CodingSessionStatus,
+    CodingSessionUpdateRequest,
+    VerificationCreateRequest,
+    VerificationResponse,
+)
 
 SERVICE_NAME = "optimizer-service"
 
@@ -176,6 +198,102 @@ def usage_log(req: UsageLogRequest):
             tracing_enabled=exporter.config.requested_enabled,
             trace_error=str(exc)[:500],
         )
+
+
+@app.post(
+    "/coding/sessions",
+    response_model=CodingSessionDetail,
+    status_code=201,
+)
+def coding_session_create(req: CodingSessionCreateRequest):
+    return create_coding_session(req)
+
+
+@app.get("/coding/sessions", response_model=CodingSessionListResponse)
+def coding_session_list(
+    organization_id: str = Query(min_length=1, max_length=200),
+    user_id: str | None = Query(default=None, min_length=1, max_length=200),
+    status: CodingSessionStatus | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    return list_coding_sessions(
+        organization_id=organization_id,
+        user_id=user_id,
+        status=status,
+        limit=limit,
+    )
+
+
+@app.get(
+    "/coding/sessions/{session_id}",
+    response_model=CodingSessionDetail,
+)
+def coding_session_get(
+    session_id: str,
+    organization_id: str = Query(min_length=1, max_length=200),
+    user_id: str | None = Query(default=None, min_length=1, max_length=200),
+):
+    try:
+        return get_coding_session(
+            session_id,
+            organization_id=organization_id,
+            user_id=user_id,
+        )
+    except CodingSessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="coding_session_not_found") from exc
+
+
+@app.patch(
+    "/coding/sessions/{session_id}",
+    response_model=CodingSessionDetail,
+)
+def coding_session_update(
+    session_id: str,
+    req: CodingSessionUpdateRequest,
+    organization_id: str = Query(min_length=1, max_length=200),
+    user_id: str = Query(min_length=1, max_length=200),
+):
+    try:
+        return update_coding_session(
+            session_id,
+            req,
+            organization_id=organization_id,
+            user_id=user_id,
+        )
+    except CodingSessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="coding_session_not_found") from exc
+
+
+@app.post(
+    "/coding/sessions/{session_id}/attempts",
+    response_model=CodingAttemptResponse,
+    status_code=201,
+)
+def coding_session_attempt(
+    session_id: str,
+    req: CodingAttemptCreateRequest,
+):
+    try:
+        return add_coding_attempt(session_id, req)
+    except CodingSessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="coding_session_not_found") from exc
+    except (CodingSessionStateError, CodingAttemptConflictError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post(
+    "/coding/sessions/{session_id}/verification",
+    response_model=VerificationResponse,
+    status_code=201,
+)
+def coding_session_verification(
+    session_id: str,
+    req: VerificationCreateRequest,
+):
+    try:
+        return add_verification_event(session_id, req)
+    except CodingSessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="coding_session_not_found") from exc
 
 
 @app.get("/observability/status", response_model=ObservabilityStatusResponse)

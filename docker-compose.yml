@@ -153,6 +153,7 @@ services:
     environment:
       - MOMIHELM_AUTH_DB_PATH=/app/data/auth/momihelm-auth.db
       - MOMIHELM_N8N_INTERNAL_URL=http://n8n:5678
+      - MOMIHELM_OPTIMIZER_INTERNAL_URL=http://optimizer-service:8000
       - MOMIHELM_SESSION_TTL_HOURS=${MOMIHELM_SESSION_TTL_HOURS:-12}
       - MOMIHELM_COOKIE_SECURE=${MOMIHELM_COOKIE_SECURE:-false}
       - MOMIHELM_ALLOWED_ORIGINS=${MOMIHELM_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}

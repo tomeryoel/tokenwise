@@ -155,8 +155,99 @@ def test_policy_is_persisted_server_side(client: TestClient):
 def test_protected_routes_require_a_session(client: TestClient):
     assert client.post("/webhook/tokenwise", json={"prompt": "hello"}).status_code == 401
     assert client.get("/webhook/tokenwise-usage-summary").status_code == 401
+    assert client.post("/coding/sessions", json={"objective": "fix code"}).status_code == 401
+    assert client.get("/coding/sessions").status_code == 401
     assert client.put("/policy", json={"policy_mode": "balanced"}).status_code == 401
     assert client.get("/users").status_code == 401
+
+
+def test_coding_session_gateway_enforces_identity_and_read_scope(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setup = setup_owner(client).json()
+    calls = []
+
+    async def fake_optimizer(method, path, *, payload=None, params=None):
+        calls.append(
+            {"method": method, "path": path, "payload": payload, "params": params}
+        )
+        return Response(content="{}", media_type="application/json", status_code=201)
+
+    monkeypatch.setattr(main, "_optimizer_request", fake_optimizer)
+    created = client.post(
+        "/coding/sessions",
+        json={
+            "objective": "I want you to code with me some game",
+            "organization_id": "attacker-org",
+            "user_id": "attacker-user",
+            "dept_id": "attacker-dept",
+            "policy_mode": "aggressive",
+        },
+    )
+    listed = client.get(
+        "/coding/sessions?organization_id=attacker&user_id=attacker"
+    )
+
+    assert created.status_code == 201
+    trusted = calls[0]["payload"]
+    assert trusted["organization_id"] == setup["user"]["organization_id"]
+    assert trusted["user_id"] == setup["user"]["id"]
+    assert trusted["dept_id"] == "engineering"
+    assert trusted["policy_mode"] == "balanced"
+    assert calls[1]["params"] == {
+        "organization_id": setup["user"]["organization_id"],
+        "limit": 50,
+    }
+
+
+def test_coding_session_mutations_are_always_user_scoped(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setup = setup_owner(client).json()
+    calls = []
+
+    async def fake_optimizer(method, path, *, payload=None, params=None):
+        calls.append(
+            {"method": method, "path": path, "payload": payload, "params": params}
+        )
+        return Response(content="{}", media_type="application/json")
+
+    monkeypatch.setattr(main, "_optimizer_request", fake_optimizer)
+    patched = client.patch(
+        "/coding/sessions/cs-123",
+        json={"confirmed_task_type": "feature_implementation"},
+    )
+    verified = client.post(
+        "/coding/sessions/cs-123/verification",
+        json={
+            "verification_type": "user_acceptance",
+            "source": "user",
+            "status": "passed",
+        },
+    )
+
+    expected_scope = {
+        "organization_id": setup["user"]["organization_id"],
+        "user_id": setup["user"]["id"],
+    }
+    assert patched.status_code == 200
+    assert verified.status_code == 200
+    assert calls[0]["params"] == expected_scope
+    assert calls[1]["payload"]["organization_id"] == expected_scope["organization_id"]
+    assert calls[1]["payload"]["user_id"] == expected_scope["user_id"]
+    assert calls[1]["payload"]["source"] == "user"
+
+    forged_automation = client.post(
+        "/coding/sessions/cs-123/verification",
+        json={
+            "verification_type": "tests",
+            "source": "automated",
+            "status": "passed",
+        },
+    )
+    assert forged_automation.status_code == 422
 
 
 def test_gateway_overrides_untrusted_identity_and_policy(

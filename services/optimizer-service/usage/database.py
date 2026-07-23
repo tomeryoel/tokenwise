@@ -83,9 +83,91 @@ CREATE TABLE IF NOT EXISTS observability_exports (
     FOREIGN KEY (request_id) REFERENCES requests(request_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS coding_sessions (
+    session_id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT,
+    organization_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    dept_id TEXT NOT NULL,
+    policy_mode TEXT NOT NULL DEFAULT 'balanced',
+    objective_fingerprint TEXT NOT NULL,
+    predicted_task_type TEXT NOT NULL,
+    confirmed_task_type TEXT,
+    classification_confidence REAL NOT NULL,
+    classification_source TEXT NOT NULL DEFAULT 'rules',
+    classification_reason TEXT NOT NULL,
+    clarification_required INTEGER NOT NULL DEFAULT 0,
+    complexity_level TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
+);
+
+CREATE TABLE IF NOT EXISTS coding_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    attempt_number INTEGER NOT NULL,
+    request_id TEXT UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT,
+    recommended_tier TEXT,
+    requested_tier TEXT,
+    executed_tier TEXT,
+    provider TEXT,
+    model TEXT,
+    recommended_workflow TEXT,
+    executed_workflow TEXT,
+    actual_api_cost REAL,
+    modeled_local_cost REAL,
+    latency_ms INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (session_id, attempt_number),
+    FOREIGN KEY (session_id) REFERENCES coding_sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS context_snapshots (
+    context_id TEXT PRIMARY KEY,
+    attempt_id TEXT NOT NULL UNIQUE,
+    primary_language TEXT,
+    repository_size TEXT,
+    files_supplied INTEGER NOT NULL DEFAULT 0,
+    test_files_supplied INTEGER NOT NULL DEFAULT 0,
+    has_error_details INTEGER NOT NULL DEFAULT 0,
+    has_acceptance_criteria INTEGER NOT NULL DEFAULT 0,
+    has_relevant_tests INTEGER NOT NULL DEFAULT 0,
+    approximate_context_tokens INTEGER NOT NULL DEFAULT 0,
+    context_source TEXT NOT NULL DEFAULT 'manual',
+    privacy_classification TEXT NOT NULL DEFAULT 'standard',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (attempt_id) REFERENCES coding_attempts(attempt_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS verification_events (
+    verification_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    attempt_id TEXT,
+    verification_type TEXT NOT NULL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL,
+    score REAL,
+    details TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES coding_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (attempt_id) REFERENCES coding_attempts(attempt_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_requests_created_at ON requests(created_at);
 CREATE INDEX IF NOT EXISTS idx_requests_dept_id ON requests(dept_id);
 CREATE INDEX IF NOT EXISTS idx_observability_exported ON observability_exports(exported);
+CREATE INDEX IF NOT EXISTS idx_coding_sessions_org
+    ON coding_sessions(organization_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_coding_sessions_user
+    ON coding_sessions(user_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_coding_sessions_status
+    ON coding_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_coding_attempts_session
+    ON coding_attempts(session_id, attempt_number);
+CREATE INDEX IF NOT EXISTS idx_verification_events_session
+    ON verification_events(session_id, created_at);
 """
 
 
@@ -110,7 +192,7 @@ def _migrate_requests(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_requests_user_id ON requests(user_id)"
     )
-    conn.execute("PRAGMA user_version = 2")
+    conn.execute("PRAGMA user_version = 3")
 
 
 def get_db_path() -> str:

@@ -8,14 +8,14 @@ import secrets
 import time
 import uuid
 from collections import defaultdict, deque
-from typing import Any, Annotated
+from typing import Any, Annotated, Literal
 
 import httpx
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from database import (
     Principal,
@@ -36,6 +36,10 @@ from database import (
 SERVICE_NAME = "gateway-service"
 SESSION_COOKIE = "momihelm_session"
 N8N_BASE_URL = os.environ.get("MOMIHELM_N8N_INTERNAL_URL", "http://n8n:5678")
+OPTIMIZER_BASE_URL = os.environ.get(
+    "MOMIHELM_OPTIMIZER_INTERNAL_URL",
+    "http://optimizer-service:8000",
+)
 SESSION_TTL_SECONDS = int(
     float(os.environ.get("MOMIHELM_SESSION_TTL_HOURS", "12")) * 3600
 )
@@ -116,6 +120,70 @@ class CreateUserRequest(BaseModel):
         if role not in {"admin", "member"}:
             raise ValueError("role must be admin or member")
         return role
+
+
+class CodingSessionCreateRequest(BaseModel):
+    objective: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    complexity_level: Literal["low", "medium", "high"] | None = None
+
+    @field_validator("objective")
+    @classmethod
+    def trim_objective(cls, value: str) -> str:
+        return " ".join(value.split())
+
+
+class CodingSessionUpdateRequest(BaseModel):
+    confirmed_task_type: Literal[
+        "bug_investigation",
+        "bug_fix",
+        "feature_implementation",
+        "refactor",
+        "test_generation",
+        "code_review",
+        "architecture_design",
+        "documentation",
+        "coding_ideation",
+        "unknown",
+    ] | None = None
+    status: Literal[
+        "active",
+        "succeeded",
+        "partially_succeeded",
+        "failed",
+        "abandoned",
+        "unverified",
+    ] | None = None
+
+    @model_validator(mode="after")
+    def require_change(self) -> "CodingSessionUpdateRequest":
+        if self.confirmed_task_type is None and self.status is None:
+            raise ValueError("at least one session change is required")
+        return self
+
+
+class VerificationCreateRequest(BaseModel):
+    attempt_id: str | None = Field(default=None, min_length=1, max_length=200)
+    verification_type: Literal[
+        "tests",
+        "build",
+        "lint",
+        "type_check",
+        "static_analysis",
+        "user_acceptance",
+        "reviewer_assessment",
+        "offline_evaluator",
+        "connector_completion",
+        "rollback",
+    ]
+    source: Literal["user"] = "user"
+    status: Literal["passed", "failed", "partial", "skipped"]
+    score: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+    details: str | None = Field(default=None, max_length=500)
+
+    @field_validator("attempt_id", "details")
+    @classmethod
+    def trim_verification_text(cls, value: str | None) -> str | None:
+        return " ".join(value.split()) if value else None
 
 
 class UserResponse(BaseModel):
@@ -397,6 +465,37 @@ def get_session_user_for_refresh(user_id: str) -> Principal:
     return principal
 
 
+async def _service_request(
+    base_url: str,
+    method: str,
+    path: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
+    unavailable_detail: str = "upstream_unavailable",
+) -> Response:
+    timeout = httpx.Timeout(190.0, connect=10.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            upstream = await client.request(
+                method,
+                f"{base_url}{path}",
+                json=payload,
+                params=params,
+            )
+    except httpx.HTTPError as exc:
+        return JSONResponse(
+            status_code=502,
+            content={"detail": unavailable_detail, "message": str(exc)},
+        )
+    content_type = upstream.headers.get("content-type", "application/json")
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        headers={"Content-Type": content_type},
+    )
+
+
 async def _upstream_request(
     method: str,
     path: str,
@@ -404,25 +503,30 @@ async def _upstream_request(
     payload: dict[str, Any] | None = None,
     params: dict[str, Any] | None = None,
 ) -> Response:
-    timeout = httpx.Timeout(190.0, connect=10.0)
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            upstream = await client.request(
-                method,
-                f"{N8N_BASE_URL}{path}",
-                json=payload,
-                params=params,
-            )
-    except httpx.HTTPError as exc:
-        return JSONResponse(
-            status_code=502,
-            content={"detail": "workflow_unavailable", "message": str(exc)},
-        )
-    content_type = upstream.headers.get("content-type", "application/json")
-    return Response(
-        content=upstream.content,
-        status_code=upstream.status_code,
-        headers={"Content-Type": content_type},
+    return await _service_request(
+        N8N_BASE_URL,
+        method,
+        path,
+        payload=payload,
+        params=params,
+        unavailable_detail="workflow_unavailable",
+    )
+
+
+async def _optimizer_request(
+    method: str,
+    path: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
+) -> Response:
+    return await _service_request(
+        OPTIMIZER_BASE_URL,
+        method,
+        path,
+        payload=payload,
+        params=params,
+        unavailable_detail="intelligence_service_unavailable",
     )
 
 
@@ -486,4 +590,96 @@ async def usage_summary(
         "GET",
         "/webhook/tokenwise-usage-summary",
         params=params,
+    )
+
+
+@app.post("/coding/sessions", status_code=201)
+async def create_coding_session(
+    payload: CodingSessionCreateRequest,
+    user: CurrentUser,
+):
+    trusted_payload = payload.model_dump()
+    trusted_payload.update(
+        {
+            "organization_id": user.organization_id,
+            "user_id": user.id,
+            "dept_id": user.department_id,
+            "policy_mode": user.policy_mode,
+        }
+    )
+    return await _optimizer_request(
+        "POST",
+        "/coding/sessions",
+        payload=trusted_payload,
+    )
+
+
+@app.get("/coding/sessions")
+async def list_coding_sessions(
+    user: CurrentUser,
+    status: str | None = Query(default=None, max_length=40),
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    params: dict[str, Any] = {
+        "organization_id": user.organization_id,
+        "limit": limit,
+    }
+    if not user.can_manage:
+        params["user_id"] = user.id
+    if status:
+        params["status"] = status
+    return await _optimizer_request(
+        "GET",
+        "/coding/sessions",
+        params=params,
+    )
+
+
+@app.get("/coding/sessions/{session_id}")
+async def get_coding_session(session_id: str, user: CurrentUser):
+    params: dict[str, Any] = {"organization_id": user.organization_id}
+    if not user.can_manage:
+        params["user_id"] = user.id
+    return await _optimizer_request(
+        "GET",
+        f"/coding/sessions/{session_id}",
+        params=params,
+    )
+
+
+@app.patch("/coding/sessions/{session_id}")
+async def update_coding_session(
+    session_id: str,
+    payload: CodingSessionUpdateRequest,
+    user: CurrentUser,
+):
+    return await _optimizer_request(
+        "PATCH",
+        f"/coding/sessions/{session_id}",
+        payload=payload.model_dump(exclude_none=True),
+        params={
+            "organization_id": user.organization_id,
+            "user_id": user.id,
+        },
+    )
+
+
+@app.post("/coding/sessions/{session_id}/verification", status_code=201)
+async def create_verification_event(
+    session_id: str,
+    payload: VerificationCreateRequest,
+    user: CurrentUser,
+):
+    trusted_payload = payload.model_dump()
+    trusted_payload.update(
+        {
+            "organization_id": user.organization_id,
+            "user_id": user.id,
+            "source": "user",
+        }
+    )
+    return await _optimizer_request(
+        "POST",
+        f"/coding/sessions/{session_id}/verification",
+        payload=trusted_payload,
     )
