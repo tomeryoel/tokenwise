@@ -304,10 +304,11 @@ def auth_login(payload: LoginRequest, request: Request, response: Response):
 
 
 @app.post("/auth/logout", status_code=204)
-def auth_logout(request: Request, response: Response):
+def auth_logout(request: Request):
     token = request.cookies.get(SESSION_COOKIE)
     if token:
         delete_session(_hash_session_token(token))
+    response = Response(status_code=204)
     response.delete_cookie(
         SESSION_COOKIE,
         path="/",

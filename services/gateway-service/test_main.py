@@ -71,7 +71,14 @@ def test_setup_is_single_use(client: TestClient):
 
 def test_login_and_logout_invalidate_session(client: TestClient):
     setup_owner(client)
-    client.post("/auth/logout")
+    logout = client.post("/auth/logout")
+    assert logout.status_code == 204
+    assert logout.content == b""
+    cookie = logout.headers["set-cookie"]
+    assert "momihelm_session=\"\"" in cookie
+    assert "Max-Age=0" in cookie
+    assert "HttpOnly" in cookie
+    assert "SameSite=strict" in cookie
     assert client.get("/auth/me").status_code == 401
 
     rejected = client.post(
