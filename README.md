@@ -13,7 +13,10 @@ then reports the savings.
 > **PyTorch image analysis (Day 8)**, and **privacy-safe Langfuse tracing (Day 9)**
 > are now real. **Day 12 release readiness** adds automatic workflow bootstrap,
 > health-based startup, loopback-only networking, production frontend serving,
-> and a product-level smoke test.
+> and a product-level smoke test. The current security release adds first-run
+> owner setup, account sign-in, HTTP-only sessions, organization roles,
+> server-enforced policy, organization/user data isolation, and private backend
+> networking.
 
 > **Brand migration:** MomiHelm is the product name. Existing lowercase
 > `tokenwise` webhook paths, database filenames, Docker resources, environment
@@ -25,6 +28,7 @@ then reports the savings.
 flowchart TB
     subgraph L1 [Layer 1 - UI]
         UI["React + Vite + TypeScript"]
+        GW["Authenticated FastAPI gateway"]
     end
     subgraph L2 [Layer 2 - Orchestration]
         N8N["n8n workflow"]
@@ -43,7 +47,8 @@ flowchart TB
         LF["Langfuse :3000"]
     end
 
-    UI -->|POST webhook| N8N
+    UI -->|same-origin /api + HTTP-only session| GW
+    GW -->|trusted identity and policy| N8N
     N8N --> GR
     N8N --> RAG
     N8N --> OPT
@@ -82,7 +87,8 @@ tokenwise/
   docs/architecture.md        # diagrams + what is real vs mocked
   docs/langfuse-observability.md # Day 9 setup, privacy, and operations
   contracts/api-contracts.md  # API contracts (v0)
-  services/
+    services/
+    gateway-service/          # FastAPI: auth, sessions, roles, policy, protected proxy
     guardrails-service/       # FastAPI: /health /check/input /check/output
     rag-cache-service/        # FastAPI: /health /cache/lookup /cache/store /policy/query
     image-analyser-service/   # FastAPI: /health /analyse
@@ -138,9 +144,17 @@ download size. It then:
 4. waits for the production frontend, and
 5. opens MomiHelm at http://127.0.0.1:5173.
 
-All application ports bind to `127.0.0.1` by default and are not exposed to the
-local network. Change `MOMIHELM_HOST` in `.env` only for a deliberate remote
-deployment.
+On first launch, MomiHelm asks you to create the organization owner account.
+After that, every Playground, Dashboard, and Admin request requires an
+HTTP-only session cookie. Owners can create member and admin accounts from
+Admin. Members receive user-scoped Dashboard data; owners and admins receive
+organization-scoped data. Every user can change their own password from
+**Account**; doing so revokes their other active sessions.
+
+Only the frontend is published to the host at `127.0.0.1:5173`. n8n, the
+gateway, and all four Python services are private inside the Docker network.
+For HTTPS deployment, set `MOMIHELM_COOKIE_SECURE=true` and configure the exact
+public origin in `MOMIHELM_ALLOWED_ORIGINS`.
 
 ### Lifecycle commands
 
@@ -157,14 +171,11 @@ The running stack exposes:
 
 | Component | URL |
 |---|---|
-| React UI | http://localhost:5173 |
-| n8n | http://localhost:5679 |
-| guardrails-service | http://localhost:8001/health |
-| rag-cache-service | http://localhost:8002/health |
-| image-analyser-service | http://localhost:8003/health |
-| optimizer-service | http://localhost:8004/health |
+| MomiHelm UI and authenticated API | http://127.0.0.1:5173 |
 
-For advanced use, `docker compose up -d --build` still works directly; the
+Backend health and webhook endpoints are intentionally not host-accessible.
+Use `docker compose exec <service> ...` for diagnostics. For advanced use,
+`docker compose up -d --build` still works directly; the
 `n8n-init` one-shot service performs workflow import and publication. The
 lifecycle commands are recommended because they also validate the provider and
 wait for readiness.
@@ -190,7 +201,8 @@ docker compose --env-file .env.langfuse -f docker-compose.yml -f docker-compose.
 This additionally starts Langfuse Web at http://localhost:3000 and its official
 self-hosted dependencies. Verify it with
 `GET http://localhost:3000/api/public/health`, then inspect MomiHelm export state at
-`GET http://localhost:8004/observability/status`. Full setup, privacy guarantees,
+`GET http://optimizer-service:8000/observability/status` from inside the Compose
+network. Full setup, privacy guarantees,
 trace stages, and troubleshooting are in
 [docs/langfuse-observability.md](docs/langfuse-observability.md).
 
@@ -210,36 +222,21 @@ The smoke test verifies the provider-error contract, new text execution,
 semantic cache reuse, PII redaction/local routing, prompt-injection blocking,
 low-complexity image handling, and usage analytics.
 
-### 2. Health checks (PowerShell)
+### 2. Health checks
 
-```powershell
-Invoke-RestMethod http://localhost:8001/health
-Invoke-RestMethod http://localhost:8002/health
-Invoke-RestMethod http://localhost:8003/health
-Invoke-RestMethod http://localhost:8004/health
+```bash
+docker compose ps
+curl -fsS http://127.0.0.1:5173/healthz
 ```
 
-Each returns `{"status":"ok","service":"..."}`.
+Compose reports the internal services as healthy without publishing their ports.
 
-### 3. End-to-end through n8n (PowerShell)
+### 3. From the UI
 
-```powershell
-$body = @{ prompt = "How do I reset my password?"; policy_mode = "balanced" } | ConvertTo-Json
-Invoke-RestMethod -Uri "http://localhost:5679/webhook/tokenwise" -Method Post -Body $body -ContentType "application/json"
-```
-
-> Note: n8n is published on host port **5679** (not the default 5678) so it does
-> not collide with any other n8n you may already run on this machine. Inside the
-> compose network n8n still listens on 5678.
-
-Returns `{ answer, receipt }` where `receipt` contains `guardrail_status`,
-`cache_status`, `selected_tier`, `estimated_tokens`, `estimated_cost`,
-`optimization_reason`, `cost_saved`.
-
-### 4. From the UI
-
-Open http://localhost:5173, type a prompt in **Playground**, pick a policy mode,
-click **Run with MomiHelm**, and read the answer + Decision Receipt.
+Open http://127.0.0.1:5173, create the first owner account or sign in, type a
+prompt in **Playground**, click **Run with MomiHelm**, and read the answer plus
+Decision Receipt. Owners and admins set the server-enforced organization policy
+in **Admin**.
 
 > Workflow import and publication are automatic. If a service or provider fails,
 > the UI reports the real pipeline outcome and never invents a mock answer.
@@ -254,7 +251,8 @@ The `rag-cache-service` is a **real** semantic cache:
   re-downloaded on every restart. **Cache entries survive container restarts.**
 - Similarity: cosine, `confidence = clamp(1 - cosine_distance, 0, 1)`; default
   threshold `0.88` (env `CACHE_SIMILARITY_THRESHOLD`, overridable per request).
-- Department isolation: lookups filter by `dept_id` metadata (default `demo-support`).
+- Tenant isolation: lookups require both trusted `organization_id` and `dept_id`
+  metadata. Legacy direct calls use the isolated `legacy-local` organization.
 - Sensitive requests (`contains_sensitive_data=true`, e.g. PII) are never searched
   or stored.
 
@@ -305,7 +303,8 @@ packaging decision (four-service architecture preserved).
 - **Never commit API keys.** Use the root `.env` copied from `.env.example`;
   `.env` is gitignored.
 
-Provider health: `GET http://localhost:8004/providers/health`
+Provider health is available internally at
+`http://optimizer-service:8000/providers/health`.
 
 ## Usage database, cost avoidance, and ROI (Days 7 and 10)
 
@@ -317,8 +316,9 @@ The optimizer-service persists terminal request outcomes in SQLite at
   positive `operating_cost_usd` for an explicit ROI scenario
 - `GET /usage/recent` — privacy-safe recent request list (no prompts)
 
-Dashboard fetches analytics via n8n read-only webhook:
-`GET http://localhost:5679/webhook/tokenwise-usage-summary`
+Dashboard fetches analytics through the authenticated same-origin gateway. The
+gateway injects `organization_id`; member requests also receive a mandatory
+`user_id` filter.
 
 **Primary cost-avoidance metric:** `actual_cost_saved` when known, else
 `estimated_savings` (one value per request, never double-counted). The response
@@ -335,7 +335,10 @@ Policy-mode request counts and cost avoidance are reported separately for
 `conservative`, `balanced`, and `aggressive`. `premium_usage_rate` counts actual
 premium executions; `premium_requested_rate` reports premium requests.
 
-**Privacy:** only SHA-256 prompt fingerprints stored; no raw prompts, PII, or secrets.
+**Privacy:** only SHA-256 prompt fingerprints are stored in usage SQLite; no raw
+prompts, PII, or secrets. n8n is configured not to retain new successful, failed,
+or manual execution payloads. Existing local execution history is preserved
+until its owner explicitly approves deletion.
 
 Development reset (optional): `python -m usage.reset_db --force`
 

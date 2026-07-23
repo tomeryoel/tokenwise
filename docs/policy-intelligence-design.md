@@ -378,8 +378,8 @@ Inspected at checkpoint `5682eea`. Findings are precise; **Policy RAG is not imp
 | Is any policy collection seeded? | **No.** The only Chroma collection is `semantic_cache`. No seed scripts, no policy document dataset, no policy embeddings. |
 | Does LangGraph receive retrieved policies? | **No.** `AgentRunRequest` has no `policies`/`retrieved_policies`/`policy_text` field. `OptimizerState` has no retrieved-policy input. |
 | Do retrieved policies influence routing? | **No — none exist.** Routing uses structured signals only. |
-| Are `policy_mode` values structured config or retrieval results? | **Structured config.** `policy_mode ∈ {conservative, balanced, aggressive}`, set in Admin/Playground UI, normalized in `normalize_inputs`. Not retrieval. |
-| What is real? | `policy_mode` end-to-end (UI → n8n → optimizer → usage DB); optimizer compression/tier logic driven by `policy_mode`; guardrails hardcoded safety/cost rules emitting routing fields (`require_local_model`, `allow_external_model`, `recommended_route`, `contains_sensitive_data`, `requires_redaction`). |
+| Are `policy_mode` values structured config or retrieval results? | **Structured config.** `policy_mode ∈ {conservative, balanced, aggressive}`, stored for the organization and changed by an owner/admin in Admin. Not retrieval. |
+| What is real? | Server-enforced `policy_mode` end-to-end (gateway → n8n → optimizer → usage DB); optimizer compression/tier logic driven by `policy_mode`; guardrails hardcoded safety/cost rules emitting routing fields (`require_local_model`, `allow_external_model`, `recommended_route`, `contains_sensitive_data`, `requires_redaction`). |
 | What is placeholder? | `POST /policy/query`; any policy vector collection/seed; n8n call to `/policy/query` (never wired); retrieved-policy influence on decisions. |
 | Which naming is misleading? | `rag-cache-service` name implies broad RAG but only a semantic Q/A cache exists; `/policy/query` implies active retrieval but always returns empty; `policy_mode` can be misread as "policy from RAG" but is a 3-value config; `policy_triggered` (guardrails) is a governance-rule category, not a retrieved document. |
 

@@ -1,20 +1,75 @@
-# MomiHelm - API Contracts (v0, walking skeleton)
+# MomiHelm - API Contracts (v1, authenticated local product)
 
 These are the stable contracts used by the current local product. The request path
 is wired end to end through n8n, the four FastAPI services, and a configured local
 or external model provider. A small number of explicitly identified placeholder
 capabilities remain, such as Policy Evidence Retrieval.
 
-All services listen on port 8000 inside their container. Host ports (docker-compose):
+Only the Nginx frontend is published to the host (`127.0.0.1:5173`). All
+FastAPI services and n8n are private on the Compose network:
 
-| Service | Host port | Container port |
-|---|---|---|
-| guardrails-service | 8001 | 8000 |
-| rag-cache-service | 8002 | 8000 |
-| image-analyser-service | 8003 | 8000 |
-| optimizer-service | 8004 | 8000 |
+| Service | Container port |
+|---|---|
+| gateway-service | 8000 |
+| guardrails-service | 8000 |
+| rag-cache-service | 8000 |
+| image-analyser-service | 8000 |
+| optimizer-service | 8000 |
+| n8n | 5678 |
 
 Every service exposes `GET /health -> {"status": "ok", "service": "<name>"}`.
+
+## gateway-service (authentication and trust boundary)
+
+The browser accesses these endpoints through `/api`. Sessions use an opaque
+random token in an HTTP-only, SameSite=Strict cookie; SQLite stores only the
+SHA-256 token hash. Passwords use Argon2id. Mutation requests with an unknown
+browser origin are rejected.
+
+- `GET /auth/state`: first-run and current-session state.
+- `POST /auth/setup`: atomically creates the one allowed first owner and
+  organization.
+- `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`: session lifecycle.
+- `PUT /auth/password`: verifies the current password, stores a new Argon2id
+  hash, revokes other sessions, and refreshes the current session.
+- `GET /users`, `POST /users`: manager-only account list/provisioning. Owners
+  may create admins or members; admins may create members.
+- `PUT /policy`: owner/admin organization policy update.
+- `POST /webhook/tokenwise`: authenticated proxy. The gateway discards caller
+  values for `request_id`, `organization_id`, `user_id`, `dept_id`, and
+  `policy_mode`, replacing them with trusted server values.
+- `GET /webhook/tokenwise-usage-summary`: authenticated analytics proxy.
+  Managers are organization-scoped and may filter department; members are
+  forcibly scoped to their own user ID. Managers also receive preserved
+  pre-auth `legacy-local` usage history; those rows are never exposed to members.
+
+First-run setup request:
+
+```json
+{
+  "display_name": "Tomer",
+  "email": "tomer@example.com",
+  "password": "at least twelve characters",
+  "organization_name": "MomiHelm Demo",
+  "department_id": "engineering"
+}
+```
+
+Authenticated user response:
+
+```json
+{
+  "id": "user-id",
+  "organization_id": "organization-id",
+  "organization_name": "MomiHelm Demo",
+  "email": "tomer@example.com",
+  "display_name": "Tomer",
+  "role": "owner",
+  "department_id": "engineering",
+  "policy_mode": "balanced",
+  "can_manage": true
+}
+```
 
 ## guardrails-service (Day 3: real MVP rules)
 
@@ -88,9 +143,9 @@ embeddings and **ChromaDB** persistent storage.
   A larger distance always means a lower confidence.
 - **Threshold:** default `0.88`, from env `CACHE_SIMILARITY_THRESHOLD` and
   overridable per-request via the `threshold` field.
-- **Department isolation:** lookups filter Chroma by `where={"dept_id": <dept>}`,
-  so `support` entries are never returned for `engineering`. Default dept when
-  the caller omits one is `demo-support`.
+- **Tenant isolation:** lookups filter Chroma by both `organization_id` and
+  `dept_id`, so entries cannot cross organizations or departments. Legacy
+  direct callers default to `legacy-local`.
 - **Sensitive-data exclusion:** requests with `contains_sensitive_data=true` are
   neither searched nor stored.
 - **Persistence:** Chroma data lives at `/app/data/chroma` on the `rag_cache_data`
@@ -102,28 +157,32 @@ embeddings and **ChromaDB** persistent storage.
 ### POST /cache/lookup
 Request:
 ```json
-{ "query": "How can MomiHelm reduce LLM costs?", "dept_id": "support",
+{ "query": "How can MomiHelm reduce LLM costs?",
+  "organization_id": "org-1", "user_id": "user-1", "dept_id": "support",
   "task_type": "general", "threshold": 0.88, "contains_sensitive_data": false }
 ```
 Response on hit:
 ```json
 { "hit": true, "confidence": 0.94, "answer": "...", "entry_id": "ab12...",
-  "dept_id": "support", "estimated_tokens": 16, "cost_saved": 0.00048,
+  "organization_id": "org-1", "dept_id": "support",
+  "estimated_tokens": 16, "cost_saved": 0.00048,
   "threshold": 0.88, "reason": "semantic_cache_hit" }
 ```
 Response on miss:
 ```json
 { "hit": false, "confidence": 0.62, "answer": null, "entry_id": null,
-  "dept_id": "support", "estimated_tokens": 16, "cost_saved": 0.0,
+  "organization_id": "org-1", "dept_id": "support",
+  "estimated_tokens": 16, "cost_saved": 0.0,
   "threshold": 0.88, "reason": "below_similarity_threshold" }
 ```
 Other `reason` values: `sensitive_request_not_cacheable`, `empty_query`,
-`no_entries_for_dept`. (`query` is preferred; `prompt` still accepted.)
+`no_entries_for_scope`. (`query` is preferred; `prompt` still accepted.)
 
 ### POST /cache/store
 Request:
 ```json
-{ "query": "...", "answer": "...", "dept_id": "support", "task_type": "general",
+{ "query": "...", "answer": "...", "organization_id": "org-1",
+  "user_id": "user-1", "dept_id": "support", "task_type": "general",
   "contains_sensitive_data": false, "output_guardrail_passed": true }
 ```
 Response: `{ "stored": true, "entry_id": "ab12...", "reason": "stored" }`
@@ -386,23 +445,24 @@ Returns the local export record for one MomiHelm request:
 Unknown request IDs return HTTP 200 with `found=false`. Neither observability
 endpoint exposes API keys, prompts, answers, PII, or secrets.
 
-### GET /usage/summary?period_days=30&dept_id=optional
+### GET /usage/summary?period_days=30&organization_id=...&user_id=optional&dept_id=optional
 Returns aggregated metrics. Primary savings per request uses `actual_cost_saved`
 when known, else `estimated_savings`. `roi_percentage` is null;
 `roi_status=operating_cost_not_modeled`.
 
-### GET /usage/recent?limit=20&dept_id=optional
+### GET /usage/recent?limit=20&organization_id=...&user_id=optional&dept_id=optional
 Privacy-safe recent requests (no prompt content).
 
 ### GET /webhook/tokenwise-usage-summary (n8n → browser)
-Read-only n8n webhook proxies `GET /usage/summary` with CORS for the Dashboard.
+Private n8n webhook proxies `GET /usage/summary`. Only the authenticated gateway
+can expose this data to the browser.
 
 ## Final response returned by n8n to the UI
 
 Cache miss (model path):
 ```json
 {
-  "answer": "This is a mock answer from MomiHelm.",
+  "answer": "A real response from the configured provider.",
   "receipt": {
     "guardrail_status": "passed",
     "output_guardrail_status": "passed",
@@ -413,7 +473,7 @@ Cache miss (model path):
     "selected_tier": "cheap",
     "estimated_tokens": 16,
     "estimated_cost": 0.000008,
-    "optimization_reason": "[MOCK] policy_mode=balanced, cache=miss ... -> cheap tier",
+    "optimization_reason": "support_request/low -> cheap tier [balanced]",
     "cost_saved": 0.000472,
     "savings_source": "model_routing",
     "savings_reason": "cheaper_model_selected"
@@ -424,7 +484,7 @@ Cache miss (model path):
 Cache hit (semantic cache path - optimizer and model skipped):
 ```json
 {
-  "answer": "This is a mock answer from MomiHelm.",
+  "answer": "The previously generated, guardrail-approved cached answer.",
   "receipt": {
     "guardrail_status": "passed",
     "output_guardrail_status": "passed",
@@ -442,7 +502,9 @@ Cache hit (semantic cache path - optimizer and model skipped):
 }
 ```
 
-## Error handling (skeleton convention)
+## Error handling
 Services return HTTP 200 with the shapes above for the happy path. On unexpected
 errors they return `{"error": {"code": "INTERNAL", "message": "..."}}` with an
-appropriate 4xx/5xx status. Real validation and richer error codes come later.
+appropriate 4xx/5xx status. The gateway uses bounded `detail` codes such as
+`authentication_required`, `invalid_credentials`, and `manager_role_required`;
+the frontend translates them into user-facing messages.

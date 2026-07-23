@@ -12,6 +12,8 @@ flowchart TB
     subgraph L1 [Layer 1 - User Interface]
         UI["React + TypeScript, served by Nginx
         Playground / Dashboard / Admin"]
+        GW["gateway-service
+        auth / sessions / roles / policy"]
     end
 
     subgraph L2 [Layer 2 - Orchestration]
@@ -40,7 +42,8 @@ flowchart TB
         privacy-safe traces"]
     end
 
-    UI -->|"POST webhook (prompt, policy_mode)"| N8N
+    UI -->|"same-origin /api + HTTP-only cookie"| GW
+    GW -->|"trusted user, organization, department, policy"| N8N
     N8N --> GR
     N8N --> RAG
     N8N --> OPT
@@ -56,13 +59,16 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant UI as React UI
+    participant A as Auth Gateway
     participant N as n8n
     participant G as guardrails-service
     participant C as rag-cache-service
     participant O as optimizer-service
     participant L as Langfuse
 
-    UI->>N: POST /webhook/tokenwise {prompt, policy_mode, dept_id}
+    UI->>A: POST /api/webhook/tokenwise {prompt}
+    A->>A: Validate session; load organization policy
+    A->>N: POST webhook + trusted identity/policy
     N->>N: Normalize request
     N->>G: POST /check/input
     alt input blocked
@@ -74,7 +80,7 @@ sequenceDiagram
             N->>O: POST /agent/run (vision path)
             N->>N: Return structured local image analysis
         else text request
-            N->>C: POST /cache/lookup (dept_id filtered)
+            N->>C: POST /cache/lookup (organization + dept filtered)
             alt cache hit (confidence >= threshold)
                 C-->>N: {hit:true, confidence, answer, entry_id}
                 N->>G: POST /check/output (cached answer)
@@ -95,7 +101,8 @@ sequenceDiagram
     O->>O: Persist SQLite usage + export status
     O-->>L: Export fingerprint + structured spans
     O-->>N: logged + trace status (fail-open)
-    N-->>UI: answer + Decision Receipt
+    N-->>A: answer + Decision Receipt
+    A-->>UI: answer + Decision Receipt
 ```
 
 ## Optimizer LangGraph (Day 5 + Day 5.1 conditional graph)
@@ -210,10 +217,11 @@ in [langfuse-observability.md](langfuse-observability.md).
 | Layer / concern | Status in skeleton |
 |---|---|
 | React UI (Playground/Dashboard/Admin) | Real production build served by Nginx |
+| Authentication / tenant boundary | Real gateway: Argon2id, HTTP-only sessions, roles, organization policy |
 | n8n orchestration workflow | Real wiring; automatically imported/published before n8n starts |
 | 4 FastAPI services + /health | Real services with health-checked startup ordering |
 | Guardrails logic | Real (Day 3: rules + regex, input & output) |
-| Semantic cache / embeddings | Real (Day 4: MiniLM + ChromaDB, cosine, dept isolation) |
+| Semantic cache / embeddings | Real (Day 4: MiniLM + ChromaDB, cosine, organization + dept isolation) |
 | LangGraph optimizer decision | Real (Day 5: multi-node LangGraph, deterministic rules) |
 | Usage DB / ROI analytics | Real (Day 7: SQLite in optimizer-service, Dashboard via n8n webhook) |
 | Dashboard metrics | Real (Day 7: from GET /usage/summary) |
@@ -276,8 +284,9 @@ unstructured retrieved text is never the sole authority for hard runtime decisio
   source references, and explanations for audit/receipt only. It must not override a
   structured hard rule or auto-enforce extracted text without approval.
 
-Today only the **structured** side exists in a minimal form: `policy_mode`
-(`conservative`/`balanced`/`aggressive`) is a config enum flowing UI → n8n → optimizer.
+Today only the **structured** side exists in a minimal form: organization
+`policy_mode` (`conservative`/`balanced`/`aggressive`) is stored and enforced by
+the authenticated gateway, then flows through n8n to the optimizer.
 `POST /policy/query` on `rag-cache-service` is a placeholder returning `{"policies": []}`
 and is not wired into the n8n flow — so **Policy RAG is not implemented**. The full model
 (policy hierarchy, presets, Policy Center, effective-policy preview, document ingestion,

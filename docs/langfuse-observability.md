@@ -73,7 +73,8 @@ Postgres, ClickHouse, Redis, and MinIO.
 
    ```bash
    curl http://localhost:3000/api/public/health
-   curl http://localhost:8004/observability/status
+   docker compose exec optimizer-service python -c \
+     "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/observability/status').read().decode())"
    ```
 
 5. Open http://localhost:3000 and sign in with the local credentials from the
@@ -160,13 +161,15 @@ rely on the SDK batcher.
 Overall status:
 
 ```bash
-curl http://localhost:8004/observability/status
+docker compose exec optimizer-service python -c \
+  "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/observability/status').read().decode())"
 ```
 
 One request:
 
 ```bash
-curl http://localhost:8004/observability/traces/REQUEST_ID
+docker compose exec optimizer-service python -c \
+  "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/observability/traces/REQUEST_ID').read().decode())"
 ```
 
 Container state and logs:

@@ -23,15 +23,17 @@ The stable workflow IDs are:
 - Gateway: `tokenwiseskeleton`
 - Usage summary: `tokenwiseusagesummary`
 
-The production webhook URLs remain:
+The production webhook URLs are private Docker-network endpoints:
 
 ```text
-http://localhost:5679/webhook/tokenwise
-http://localhost:5679/webhook/tokenwise-usage-summary
+http://n8n:5678/webhook/tokenwise
+http://n8n:5678/webhook/tokenwise-usage-summary
 ```
 
-The React frontend uses an Nginx same-origin `/api` proxy, so browser requests
-do not require permissive cross-origin access to n8n.
+The React frontend proxies same-origin `/api` calls to `gateway-service`.
+The gateway authenticates the session and injects trusted organization, user,
+department, and policy fields before it calls n8n. n8n is not published to the
+host.
 
 ## Recommended lifecycle
 
@@ -60,36 +62,30 @@ The normal `start` command re-imports and publishes committed workflow changes.
 For an explicit recovery cycle:
 
 ```bash
-docker compose stop frontend n8n
+docker compose stop frontend gateway-service n8n
 docker compose run --rm --no-deps n8n-init
-docker compose up -d n8n frontend
+docker compose up -d n8n gateway-service frontend
 ```
 
 The same commands work in PowerShell. The named `n8n_data` volume is preserved.
 The importer uses stable IDs, so it updates the intended workflows rather than
 creating a second production webhook path.
 
-## Optional editor access
-
-n8n is available at http://127.0.0.1:5679. The first time you open its editor,
-n8n may ask you to create a local owner account. This is optional for normal
-MomiHelm usage because the workflows are already imported and published.
-
 ## Direct webhook test
 
-PowerShell:
-
-```powershell
-$body = @{ prompt = "How do I reset my password?"; policy_mode = "balanced" } | ConvertTo-Json
-Invoke-RestMethod -Uri "http://localhost:5679/webhook/tokenwise" -Method Post -Body $body -ContentType "application/json"
-```
-
-macOS/Linux:
+Direct n8n testing is limited to one-off containers on the private Compose
+network. It is intended for release diagnostics and must supply an explicit
+test identity:
 
 ```bash
-curl -fsS -X POST http://localhost:5679/webhook/tokenwise \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"How do I reset my password?","policy_mode":"balanced"}'
+docker compose run --rm --no-deps release-smoke
+```
+
+For a single manual diagnostic:
+
+```bash
+docker compose run --rm --no-deps release-smoke python -c \
+  "import json,urllib.request; p=json.dumps({'prompt':'Hello','organization_id':'manual-test','user_id':'manual-test','dept_id':'manual-test','policy_mode':'balanced'}).encode(); print(urllib.request.urlopen(urllib.request.Request('http://n8n:5678/webhook/tokenwise',data=p,headers={'Content-Type':'application/json'})).read().decode())"
 ```
 
 The response contains `{ answer, receipt }`.
@@ -101,6 +97,8 @@ The response contains `{ answer, receipt }`.
 - HTTP nodes use Docker service names such as
   `http://guardrails-service:8000`; those names resolve only inside the Compose
   network by design.
+- New execution payload retention is disabled. Automatic pruning remains off so
+  existing history is not deleted without explicit approval.
 - Provider execution calls the real optimizer provider endpoint. There is no
   mock-answer fallback.
 - `n8n-init` is expected to show `Exited (0)` after startup because it is a
