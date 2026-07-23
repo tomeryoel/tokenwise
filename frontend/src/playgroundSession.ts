@@ -7,6 +7,8 @@ export interface PlaygroundSession {
   result: RunResponse | null;
   error: string | null;
   attachment: File | null;
+  submittedPrompt: string | null;
+  submittedAttachmentName: string | null;
 }
 
 export const initialPlaygroundSession = (): PlaygroundSession => ({
@@ -15,4 +17,6 @@ export const initialPlaygroundSession = (): PlaygroundSession => ({
   result: null,
   error: null,
   attachment: null,
+  submittedPrompt: null,
+  submittedAttachmentName: null,
 });

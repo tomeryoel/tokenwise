@@ -113,7 +113,7 @@ export async function runPrompt(
   } catch (error) {
     console.error(`${PRODUCT_NAME} could not reach the n8n workflow.`, error);
     throw new Error(
-      `The ${PRODUCT_NAME} workflow could not be reached. Make sure the local services are running, then try again.`,
+      `${PRODUCT_NAME} is temporarily unavailable. Make sure the app is running, then try again.`,
     );
   }
 
@@ -127,7 +127,7 @@ export async function runPrompt(
   } catch (error) {
     console.error(`${PRODUCT_NAME} received invalid JSON from n8n.`, error);
     throw new Error(
-      `The ${PRODUCT_NAME} workflow returned an unreadable response. Check the n8n workflow output, then try again.`,
+      `${PRODUCT_NAME} received a response it could not display. Please try again. If the problem continues, contact your administrator.`,
     );
   }
 
@@ -136,7 +136,7 @@ export async function runPrompt(
   if (!isRunResponsePayload(responsePayload)) {
     console.error(`${PRODUCT_NAME} received an incomplete response from n8n.`, data);
     throw new Error(
-      `The ${PRODUCT_NAME} workflow returned an incomplete response. It must include both an answer and a decision receipt.`,
+      `${PRODUCT_NAME} received an incomplete response. Please try again. If the problem continues, contact your administrator.`,
     );
   }
 
@@ -284,15 +284,15 @@ function httpFailureMessage(status: number): string {
     return "Your session has ended. Sign in again, then retry the request.";
   }
   if (status === 404) {
-    return `The ${PRODUCT_NAME} workflow endpoint was not found (HTTP 404). Make sure the n8n workflow is imported and active, then try again.`;
+    return `${PRODUCT_NAME} is not fully configured yet. Contact your administrator, then try again.`;
   }
   if ([502, 503, 504].includes(status)) {
-    return `The ${PRODUCT_NAME} workflow is temporarily unavailable (HTTP ${status}). Make sure n8n and its services are running, then try again.`;
+    return `${PRODUCT_NAME} is temporarily unavailable. Please wait a moment and try again.`;
   }
   if (status === 500) {
-    return `The ${PRODUCT_NAME} workflow failed or could not be reached (HTTP 500). Make sure n8n and its services are running, then check the n8n execution log and try again.`;
+    return `${PRODUCT_NAME} encountered an internal problem. Your draft is safe, so you can try again.`;
   }
-  return `The ${PRODUCT_NAME} workflow could not complete the request (HTTP ${status}). Check the n8n execution log, then try again.`;
+  return `${PRODUCT_NAME} could not complete the request (HTTP ${status}). Please try again.`;
 }
 
 function isRunResponsePayload(value: unknown): value is RunResponse {
