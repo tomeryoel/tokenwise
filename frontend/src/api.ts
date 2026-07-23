@@ -1,9 +1,17 @@
 import type {
   AuthState,
   AuthUser,
+  CodingContext,
+  CodingSession,
+  CodingSessionStatus,
+  CodingTaskType,
   DecisionReceipt,
+  DecisionEvaluation,
   PolicyMode,
   RunResponse,
+  VerificationStatus,
+  VerificationType,
+  WorkflowType,
 } from "./types";
 import { PRODUCT_NAME } from "./brand";
 
@@ -22,6 +30,7 @@ const AUTH_LOGOUT_URL = "/api/auth/logout";
 const AUTH_PASSWORD_URL = "/api/auth/password";
 const POLICY_URL = "/api/policy";
 const USERS_URL = "/api/users";
+const CODING_SESSIONS_URL = "/api/coding/sessions";
 
 export interface SetupPayload {
   display_name: string;
@@ -73,6 +82,13 @@ export interface UsageSummary {
   savings_by_policy_mode: Record<string, number>;
 }
 
+export interface CodingRunInput {
+  session_id: string;
+  recommended_workflow: WorkflowType;
+  executed_workflow: WorkflowType;
+  context: CodingContext;
+}
+
 /**
  * Send a prompt through the branded optimization pipeline.
  *
@@ -93,6 +109,7 @@ async function fileToBase64(file: File): Promise<string> {
 export async function runPrompt(
   prompt: string,
   attachment?: File | null,
+  coding?: CodingRunInput | null,
 ): Promise<RunResponse> {
   const requestPayload: Record<string, unknown> = {
     prompt,
@@ -101,6 +118,12 @@ export async function runPrompt(
     requestPayload.has_image = true;
     requestPayload.image_filename = attachment.name;
     requestPayload.image_base64 = await fileToBase64(attachment);
+  }
+  if (coding) {
+    requestPayload.coding_session_id = coding.session_id;
+    requestPayload.recommended_workflow = coding.recommended_workflow;
+    requestPayload.executed_workflow = coding.executed_workflow;
+    requestPayload.context = coding.context;
   }
 
   let res: Response;
@@ -141,6 +164,61 @@ export async function runPrompt(
   }
 
   return responsePayload;
+}
+
+export async function createCodingSession(
+  objective: string,
+): Promise<CodingSession> {
+  return fetchJson<CodingSession>(CODING_SESSIONS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ objective }),
+  });
+}
+
+export async function updateCodingSession(
+  sessionId: string,
+  changes: {
+    confirmed_task_type?: CodingTaskType;
+    status?: CodingSessionStatus;
+  },
+): Promise<CodingSession> {
+  return fetchJson<CodingSession>(
+    `${CODING_SESSIONS_URL}/${encodeURIComponent(sessionId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    },
+  );
+}
+
+export async function recordVerification(
+  sessionId: string,
+  input: {
+    attempt_id?: string | null;
+    verification_type: VerificationType;
+    status: VerificationStatus;
+    score?: number | null;
+    details?: string | null;
+  },
+): Promise<void> {
+  await fetchJson(
+    `${CODING_SESSIONS_URL}/${encodeURIComponent(sessionId)}/verification`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...input, source: "user" }),
+    },
+  );
+}
+
+export async function fetchCodingEvaluation(
+  sessionId: string,
+): Promise<DecisionEvaluation> {
+  return fetchJson<DecisionEvaluation>(
+    `${CODING_SESSIONS_URL}/${encodeURIComponent(sessionId)}/evaluation`,
+  );
 }
 
 export async function fetchUsageSummary(
@@ -275,6 +353,10 @@ async function apiFailureMessage(response: Response): Promise<string> {
     owner_role_required: "Only the organization owner can create an admin account.",
     email_already_exists: "An account with this email already exists.",
     untrusted_origin: "This request came from an untrusted browser origin.",
+    coding_session_is_closed: "This coding session is already closed.",
+    coding_session_not_found: "This coding session could not be found.",
+    invalid_coding_session_metadata: "The coding-session details are invalid.",
+    intelligence_service_unavailable: "The coding intelligence service is temporarily unavailable.",
   };
   return messages[detail] ?? `Request failed (HTTP ${response.status}).`;
 }

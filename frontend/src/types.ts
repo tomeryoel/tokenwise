@@ -1,4 +1,45 @@
 export type PolicyMode = "conservative" | "balanced" | "aggressive";
+export type CodingTaskType =
+  | "bug_investigation"
+  | "bug_fix"
+  | "feature_implementation"
+  | "refactor"
+  | "test_generation"
+  | "code_review"
+  | "architecture_design"
+  | "documentation"
+  | "coding_ideation"
+  | "unknown";
+export type WorkflowType =
+  | "direct"
+  | "plan"
+  | "agent"
+  | "debug"
+  | "review"
+  | "unknown";
+export type CodingSessionStatus =
+  | "active"
+  | "succeeded"
+  | "partially_succeeded"
+  | "failed"
+  | "abandoned"
+  | "unverified";
+export type VerificationType =
+  | "tests"
+  | "build"
+  | "lint"
+  | "type_check"
+  | "static_analysis"
+  | "user_acceptance"
+  | "reviewer_assessment"
+  | "offline_evaluator"
+  | "connector_completion"
+  | "rollback";
+export type VerificationStatus =
+  | "passed"
+  | "failed"
+  | "partial"
+  | "skipped";
 
 export interface AuthUser {
   id: string;
@@ -78,4 +119,103 @@ export interface DecisionReceipt {
 export interface RunResponse {
   answer: string;
   receipt: DecisionReceipt;
+  coding_session?: CodingAttemptTracking | null;
+}
+
+export interface CodingContext {
+  primary_language: string | null;
+  repository_size: "small" | "medium" | "large" | "unknown";
+  files_supplied: number;
+  test_files_supplied: number;
+  has_error_details: boolean;
+  has_acceptance_criteria: boolean;
+  has_relevant_tests: boolean;
+  approximate_context_tokens: number;
+  context_source: "manual" | "playground_attachment" | "connector";
+  privacy_classification: "standard" | "sensitive" | "restricted";
+}
+
+export interface CodingAttemptTracking {
+  session_id: string;
+  tracking_status: "recorded" | "not_recorded" | "unavailable";
+  attempt_id?: string | null;
+  attempt_number?: number | null;
+  reason?: string | null;
+}
+
+export interface CodingSession {
+  session_id: string;
+  organization_id: string;
+  user_id: string;
+  dept_id: string;
+  policy_mode: PolicyMode;
+  objective_fingerprint: string;
+  predicted_task_type: CodingTaskType;
+  confirmed_task_type: CodingTaskType | null;
+  classification_confidence: number;
+  classification_source: string;
+  classification_reason: string;
+  clarification_required: boolean;
+  complexity_level: "low" | "medium" | "high" | null;
+  status: CodingSessionStatus;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export type EvidenceConfidence =
+  | "insufficient"
+  | "low"
+  | "medium"
+  | "high";
+
+export interface ModelFitComponents {
+  outcome: number | null;
+  quality: number | null;
+  cost_efficiency: number | null;
+  attempt_efficiency: number | null;
+  policy: number | null;
+}
+
+export interface DecisionEvaluation {
+  evaluation_id: string;
+  evaluated_at: string;
+  session_id: string;
+  scoring_version: string;
+  model_fit: {
+    status: "unavailable" | "provisional" | "final";
+    value: number | null;
+    confidence: EvidenceConfidence;
+    components: ModelFitComponents;
+    missing_components: string[];
+    evidence: string[];
+    basis: string;
+    reason: string;
+  };
+  cost_to_success: {
+    cost_spent: number;
+    cost_to_success: number | null;
+    attempts_to_success: number | null;
+    time_to_success_ms: number | null;
+    cost_basis: "actual" | "modeled" | "mixed" | "unknown";
+    local_compute_rate_version: string | null;
+    currency: string;
+    complete: boolean;
+    missing_cost_fields: string[];
+    reason: string;
+  };
+  fit_gap: {
+    status: "unavailable" | "available";
+    value: number | null;
+    candidate_id: string | null;
+    basis: string | null;
+    reason: string;
+  };
+  power_classification: {
+    status: "unavailable" | "appropriate" | "overpowered" | "underpowered";
+    candidate_id: string | null;
+    confidence: EvidenceConfidence;
+    reason: string;
+  };
+  evidence_sources: string[];
 }
