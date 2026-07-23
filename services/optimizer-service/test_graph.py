@@ -64,6 +64,25 @@ def test_D_image_takes_vision_path():
     assert STANDARD_ONLY_NODES.isdisjoint(r["executed_nodes"])
 
 
+def test_D2_low_complexity_image_still_takes_vision_path():
+    r = _run(prompt="Describe this screenshot.", policy_mode="balanced",
+             has_image=True, image_complexity=0.2)
+    assert r["graph_path"] == "vision_path"
+    assert r["selected_tier"] == "vision"
+    assert STANDARD_ONLY_NODES.isdisjoint(r["executed_nodes"])
+
+
+def test_D3_sensitive_image_stays_on_local_vision_path():
+    r = _run(prompt="My email is x@y.com. Describe this screenshot.",
+             policy_mode="balanced", has_image=True, image_complexity=0.2,
+             require_local_model=True, contains_sensitive_data=True)
+    assert r["graph_path"] == "vision_path"
+    assert r["selected_tier"] == "vision"
+    assert r["optimization_plan"]["allow_external"] is False
+    assert r["fallback_tier"] == "none"
+    assert "no external fallback" in r["fallback_reason"]
+
+
 def test_E_standard_short_skips_compression():
     r = _run(prompt="How do I reset my password?", policy_mode="aggressive")
     assert r["graph_path"] == "standard_optimization_path"
