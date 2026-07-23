@@ -1,8 +1,9 @@
 # MomiHelm - API Contracts (v0, walking skeleton)
 
-These are the minimal contracts used by the Day 1-2 skeleton. Responses are mostly
-mocked. Fields are intentionally stable so real logic can be dropped in later without
-changing the n8n workflow or the React UI.
+These are the stable contracts used by the current local product. The request path
+is wired end to end through n8n, the four FastAPI services, and a configured local
+or external model provider. A small number of explicitly identified placeholder
+capabilities remain, such as Policy Evidence Retrieval.
 
 All services listen on port 8000 inside their container. Host ports (docker-compose):
 
@@ -176,8 +177,10 @@ Image requests from the Playground send base64 in the n8n webhook body
 (in-memory only — never stored in browser persistent storage). n8n calls
 `image-analyser-service` when `has_image=true`, forwards
 `has_image` / `image_class` / `image_complexity` to the optimizer, skips
-semantic cache lookup, and returns a vision-tier receipt when
-`visual_complexity >= 0.5`.
+semantic cache lookup, and always returns a vision-tier receipt. The analyser's
+`needs_vision_model` and `visual_complexity` fields remain useful evidence for
+future provider selection, but a low score never sends an attachment to a
+text-only provider.
 
 This is classification for routing, **not** OCR and **not** multimodal LLM
 captioning.
@@ -193,8 +196,9 @@ evaluate_sensitivity -> evaluate_cache_signal -> route_request_path`.
 
 **Conditional edge #1 (`route_request_path`)** dispatches to one of five paths:
 `reject_path` (guardrail blocked), `cache_path` (cache hit >= 0.88),
-`local_only_path` (sensitive/require_local), `vision_path` (image complexity >= 0.5),
-or `standard_optimization_path`.
+`vision_path` (any image attachment), `local_only_path` (sensitive text or
+require_local), or `standard_optimization_path`. Sensitive image requests keep
+their privacy restrictions while following the vision path.
 
 **Standard path:** `apply_policy_mode -> {decide_compression | skip_compression}
 -> select_model_tier -> build_fallback_plan`.

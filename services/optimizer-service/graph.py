@@ -42,7 +42,6 @@ TIER_PRICE_PER_1K: dict[str, float] = {
 }
 PREMIUM_TIER = "premium"
 CACHE_THRESHOLD = 0.88
-VISION_COMPLEXITY_THRESHOLD = 0.5
 
 # Compression target ratios (fraction of tokens kept).
 RATIO_NONE = 1.0
@@ -306,13 +305,15 @@ def route_request_path(state: OptimizerState) -> dict[str, Any]:
           and float(state.get("cache_confidence") or 0.0) >= CACHE_THRESHOLD):
         path = "cache_path"
         reason = f"cache hit (conf={state.get('cache_confidence')}) >= {CACHE_THRESHOLD}"
+    elif state.get("has_image"):
+        path = "vision_path"
+        reason = (
+            f"image attached; local analysis complexity="
+            f"{state.get('image_complexity', 0.0)}"
+        )
     elif state.get("require_local_model") or not state.get("allow_external_model", True):
         path = "local_only_path"
         reason = "privacy: sensitive/require_local -> local only"
-    elif (state.get("has_image")
-          and float(state.get("image_complexity") or 0.0) >= VISION_COMPLEXITY_THRESHOLD):
-        path = "vision_path"
-        reason = f"image complexity {state.get('image_complexity')} >= {VISION_COMPLEXITY_THRESHOLD}"
     else:
         path = "standard_optimization_path"
         reason = "normal non-sensitive cache-miss request"
@@ -375,18 +376,35 @@ def local_only_path(state: OptimizerState) -> dict[str, Any]:
 
 
 def vision_path(state: OptimizerState) -> dict[str, Any]:
+    local_only = (
+        state.get("contains_sensitive_data")
+        or state.get("require_local_model")
+        or not state.get("allow_external_model", True)
+    )
+    fallback_tier = "none" if local_only else "premium"
+    fallback_reason = (
+        "sensitive image request: no external fallback"
+        if local_only
+        else "vision model unavailable -> premium multimodal fallback"
+    )
+    escalation_conditions = (
+        ["local-only image: no escalation to external providers"]
+        if local_only
+        else ["vision provider down -> premium multimodal"]
+    )
     return {
         "selected_tier": "vision",
         "compression_recommended": False,
         "compression_target_ratio": RATIO_NONE,
         "compression_reason": "n/a: vision request",
         "compression_risk": "low",
-        "fallback_tier": "premium",
-        "fallback_reason": "vision model unavailable -> premium multimodal fallback",
-        "escalation_conditions": ["vision provider down -> premium multimodal"],
+        "fallback_tier": fallback_tier,
+        "fallback_reason": fallback_reason,
+        "escalation_conditions": escalation_conditions,
         "executed_nodes": ["vision_path"],
         "decision_reasons": [
-            f"vision_path: image complexity {state.get('image_complexity')} requires vision model"
+            "vision_path: attachment handled by local image analysis; "
+            f"complexity={state.get('image_complexity', 0.0)}"
         ],
     }
 
