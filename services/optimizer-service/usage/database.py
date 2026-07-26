@@ -100,7 +100,9 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
     classification_reason TEXT NOT NULL,
     clarification_required INTEGER NOT NULL DEFAULT 0,
     complexity_level TEXT,
-    status TEXT NOT NULL DEFAULT 'active'
+    status TEXT NOT NULL DEFAULT 'active',
+    external_source TEXT,
+    external_session_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS coding_attempts (
@@ -120,6 +122,7 @@ CREATE TABLE IF NOT EXISTS coding_attempts (
     actual_api_cost REAL,
     modeled_local_cost REAL,
     latency_ms INTEGER NOT NULL DEFAULT 0,
+    external_attempt_id TEXT,
     UNIQUE (session_id, attempt_number),
     FOREIGN KEY (session_id) REFERENCES coding_sessions(session_id) ON DELETE CASCADE
 );
@@ -190,6 +193,44 @@ CREATE INDEX IF NOT EXISTS idx_verification_events_session
     ON verification_events(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_decision_evaluations_session
     ON decision_evaluations(session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS cursor_ingest_events (
+    event_key TEXT PRIMARY KEY,
+    session_id TEXT,
+    attempt_id TEXT,
+    ingested_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES coding_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (attempt_id) REFERENCES coding_attempts(attempt_id) ON DELETE CASCADE
+);
+
+-- External-id unique indexes are created by _migrate_coding_external_ids so
+-- existing databases receive the columns before the indexes are applied.
+
+CREATE TABLE IF NOT EXISTS cursor_sdk_runs (
+    run_key TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    sdk_run_id TEXT,
+    sdk_agent_id TEXT,
+    selected_model TEXT,
+    recommended_model TEXT,
+    model_used TEXT,
+    status TEXT NOT NULL,
+    result_fingerprint TEXT,
+    error_detail TEXT,
+    duration_ms INTEGER,
+    workspace_kind TEXT,
+    changed_files_json TEXT,
+    diff_fingerprint TEXT,
+    validation_command TEXT,
+    validation_status TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES coding_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (attempt_id) REFERENCES coding_attempts(attempt_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_cursor_sdk_runs_session
+    ON cursor_sdk_runs(session_id, created_at);
 """
 
 
@@ -217,6 +258,108 @@ def _migrate_requests(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA user_version = 4")
 
 
+def _migrate_coding_external_ids(conn: sqlite3.Connection) -> None:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version >= 5:
+        return
+
+    session_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(coding_sessions)").fetchall()
+    }
+    if "external_source" not in session_columns:
+        conn.execute("ALTER TABLE coding_sessions ADD COLUMN external_source TEXT")
+    if "external_session_id" not in session_columns:
+        conn.execute("ALTER TABLE coding_sessions ADD COLUMN external_session_id TEXT")
+
+    attempt_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(coding_attempts)").fetchall()
+    }
+    if "external_attempt_id" not in attempt_columns:
+        conn.execute("ALTER TABLE coding_attempts ADD COLUMN external_attempt_id TEXT")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cursor_ingest_events (
+            event_key TEXT PRIMARY KEY,
+            session_id TEXT,
+            attempt_id TEXT,
+            ingested_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (session_id) REFERENCES coding_sessions(session_id) ON DELETE CASCADE,
+            FOREIGN KEY (attempt_id) REFERENCES coding_attempts(attempt_id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_coding_sessions_external
+        ON coding_sessions(external_source, external_session_id)
+        WHERE external_session_id IS NOT NULL
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_coding_attempts_external
+        ON coding_attempts(external_attempt_id)
+        WHERE external_attempt_id IS NOT NULL
+        """
+    )
+    conn.execute("PRAGMA user_version = 5")
+
+
+def _migrate_cursor_sdk_runs(conn: sqlite3.Connection) -> None:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version >= 6:
+        return
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cursor_sdk_runs (
+            run_key TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            attempt_id TEXT NOT NULL,
+            sdk_run_id TEXT,
+            sdk_agent_id TEXT,
+            selected_model TEXT,
+            recommended_model TEXT,
+            model_used TEXT,
+            status TEXT NOT NULL,
+            result_fingerprint TEXT,
+            error_detail TEXT,
+            duration_ms INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (session_id) REFERENCES coding_sessions(session_id) ON DELETE CASCADE,
+            FOREIGN KEY (attempt_id) REFERENCES coding_attempts(attempt_id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_cursor_sdk_runs_session
+        ON cursor_sdk_runs(session_id, created_at)
+        """
+    )
+    conn.execute("PRAGMA user_version = 6")
+
+
+def _migrate_cursor_sdk_coding_run_metadata(conn: sqlite3.Connection) -> None:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version >= 7:
+        return
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(cursor_sdk_runs)").fetchall()
+    }
+    additions = {
+        "workspace_kind": "TEXT",
+        "changed_files_json": "TEXT",
+        "diff_fingerprint": "TEXT",
+        "validation_command": "TEXT",
+        "validation_status": "TEXT",
+    }
+    for name, decl in additions.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE cursor_sdk_runs ADD COLUMN {name} {decl}")
+    conn.execute("PRAGMA user_version = 7")
+
+
 def get_db_path() -> str:
     return os.environ.get("USAGE_DB_PATH", DEFAULT_DB_PATH)
 
@@ -227,6 +370,9 @@ def init_db(db_path: str | None = None) -> None:
     with sqlite3.connect(path) as conn:
         conn.executescript(SCHEMA_SQL)
         _migrate_requests(conn)
+        _migrate_coding_external_ids(conn)
+        _migrate_cursor_sdk_runs(conn)
+        _migrate_cursor_sdk_coding_run_metadata(conn)
         conn.commit()
 
 

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "momihelm-cursor": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "connectors.cursor.mcp_server"
+      ],
+      "env": {
+        "PYTHONPATH": "."
+      }
+    }
+  }
+}

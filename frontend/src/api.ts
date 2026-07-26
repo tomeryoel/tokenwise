@@ -32,6 +32,10 @@ const POLICY_URL = "/api/policy";
 const USERS_URL = "/api/users";
 const CODING_SESSIONS_URL = "/api/coding/sessions";
 const CODING_ANALYTICS_URL = "/api/coding/analytics/summary";
+const CURSOR_AGENT_HEALTH_URL = "/api/cursor-agent/health";
+const CURSOR_AGENT_MODELS_URL = "/api/cursor-agent/models";
+const CURSOR_AGENT_RUN_URL = "/api/cursor-agent/run";
+const CURSOR_ROUTE_RECOMMEND_URL = "/api/cursor/route/recommend";
 
 export interface SetupPayload {
   display_name: string;
@@ -332,6 +336,114 @@ export async function fetchDecisionIntelligenceSummary(
   );
 }
 
+export interface CursorAgentModel {
+  id: string;
+  display_name: string;
+  family?: string;
+  route_class?: string;
+  momihelm_tier?: string;
+}
+
+export interface CursorAgentHealth {
+  status: string;
+  bridge_configured: boolean;
+  experimental: boolean;
+  detail?: string;
+}
+
+export interface CursorRouteRecommendation {
+  recommended_model_id: string;
+  recommended_display_name: string;
+  recommended_tier: string;
+  route_class: string;
+  resolved_from_auto: boolean;
+  reasons: string[];
+  alternatives: Array<{
+    model_id: string;
+    display_name: string;
+    route_class: string;
+    momihelm_tier: string;
+    reason: string;
+  }>;
+  recommended_path?: "local_ollama" | "cursor_sdk";
+  path_reasons?: string[];
+  recommendation_basis?: "heuristic" | "configured" | "evidence";
+  confidence?: number;
+}
+
+export interface CursorAgentRunResult {
+  experimental: boolean;
+  claim: string;
+  status: string;
+  answer: string | null;
+  error: string | null;
+  selected_model: string;
+  recommended_model: string | null;
+  model_used: string | null;
+  sdk_run_id: string | null;
+  sdk_agent_id: string | null;
+  duration_ms: number | null;
+  session_id: string | null;
+  attempt_id: string | null;
+  result_fingerprint: string | null;
+  provider: string;
+  workspace_cwd?: string | null;
+  workspace_kind?: string | null;
+  sdk_sandbox_enabled?: boolean | null;
+  changed_files?: string[];
+  diff_text?: string | null;
+  diff_fingerprint?: string | null;
+  diff_truncated?: boolean;
+  validation_command?: string | null;
+  validation_status?: string | null;
+  validation_exit_code?: number | null;
+  validation_stdout?: string | null;
+  validation_stderr?: string | null;
+  persist_raw_diff?: boolean;
+}
+
+export async function fetchCursorAgentHealth(): Promise<CursorAgentHealth> {
+  return fetchJson<CursorAgentHealth>(CURSOR_AGENT_HEALTH_URL);
+}
+
+export async function fetchCursorAgentModels(): Promise<{
+  models: CursorAgentModel[];
+  count: number;
+  source: string;
+  detail?: string;
+}> {
+  return fetchJson(CURSOR_AGENT_MODELS_URL);
+}
+
+export async function recommendCursorRoute(payload: {
+  objective: string;
+  workflow?: WorkflowType;
+  complexity_level?: "low" | "medium" | "high";
+  prefer_auto?: boolean;
+}): Promise<CursorRouteRecommendation> {
+  return fetchJson<CursorRouteRecommendation>(CURSOR_ROUTE_RECOMMEND_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function runCursorAgent(payload: {
+  prompt: string;
+  selected_model: string;
+  recommended_model?: string | null;
+  coding_session_id?: string | null;
+  workflow?: WorkflowType;
+  validation_command?: string | null;
+  include_diff_in_response?: boolean;
+}): Promise<CursorAgentRunResult> {
+  return fetchJson<CursorAgentRunResult>(CURSOR_AGENT_RUN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function fetchAuthState(): Promise<AuthState> {
   return fetchJson<AuthState>(AUTH_STATE_URL);
 }
@@ -432,6 +544,11 @@ async function apiFailureMessage(response: Response): Promise<string> {
     coding_session_is_closed: "This coding session is already closed.",
     coding_session_not_found: "This coding session could not be found.",
     invalid_coding_session_metadata: "The coding-session details are invalid.",
+    cursor_bridge_unavailable: "The local Cursor SDK bridge is not running. Start it with ./momihelm cursor-bridge.",
+    cursor_bridge_not_configured: "Cursor Agent bridge is not configured. Set MOMIHELM_CURSOR_BRIDGE_TOKEN in .env.",
+    cursor_api_key_missing: "CURSOR_API_KEY is missing in the bridge environment.",
+    bridge_authentication_required: "The Cursor bridge rejected the bridge token.",
+    bridge_token_not_configured: "The Cursor bridge token is not configured.",
     intelligence_service_unavailable: "The coding intelligence service is temporarily unavailable.",
   };
   return messages[detail] ?? `Request failed (HTTP ${response.status}).`;

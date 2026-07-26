@@ -35,8 +35,18 @@ http://n8n:5678/webhook/tokenwise-usage-summary
 
 The React frontend proxies same-origin `/api` calls to `gateway-service`.
 The gateway authenticates the session and injects trusted organization, user,
-department, and policy fields before it calls n8n. n8n is not published to the
-host.
+department, and policy fields before it calls n8n. Production webhook traffic
+stays on the private Compose network. For local diagnostics only, the n8n
+editor is published on loopback:
+
+```text
+http://127.0.0.1:5679
+http://127.0.0.1:5679/workflow/tokenwiseskeleton
+http://127.0.0.1:5679/workflow/tokenwiseusagesummary
+```
+
+Use `./momihelm n8n-url`, `./momihelm n8n-status`, or `./momihelm n8n-open`.
+Do not publish n8n beyond loopback on shared or public hosts.
 
 ## Recommended lifecycle
 

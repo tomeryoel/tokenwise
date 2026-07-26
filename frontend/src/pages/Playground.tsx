@@ -9,7 +9,11 @@ import ReactMarkdown from "react-markdown";
 import {
   createCodingSession,
   fetchCodingEvaluation,
+  fetchCursorAgentHealth,
+  fetchCursorAgentModels,
+  recommendCursorRoute,
   recordVerification,
+  runCursorAgent,
   runPrompt,
   updateCodingSession,
 } from "../api";
@@ -81,6 +85,17 @@ export default function Playground({
     evaluation,
     verificationLoading,
     verificationError,
+    cursorSelectedModel,
+    cursorRecommendedModel,
+    cursorRecommendationReasons,
+    cursorRecommendedPath,
+    cursorPathReasons,
+    cursorRecommendationBasis,
+    cursorRecommendationConfidence,
+    cursorModels,
+    cursorBridgeStatus,
+    cursorValidationCommand,
+    cursorAgentResult,
   } = session;
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -131,11 +146,163 @@ export default function Playground({
     if (loading) return;
     if (!prompt.trim() && !attachment) return;
 
+    if (mode === "cursor_agent") {
+      await executeCursorAgent();
+      return;
+    }
     if (mode === "coding" && codingPhase === "draft") {
       await classifyObjective();
       return;
     }
     await executeRequest();
+  }
+
+  async function prepareCursorAgentMode() {
+    try {
+      const [health, modelsPayload] = await Promise.all([
+        fetchCursorAgentHealth(),
+        fetchCursorAgentModels(),
+      ]);
+      setSession((current) => ({
+        ...current,
+        cursorBridgeStatus: health.status,
+        cursorModels: modelsPayload.models.map((model) => ({
+          id: model.id,
+          display_name: model.display_name,
+        })),
+        cursorSelectedModel:
+          current.cursorSelectedModel ||
+          modelsPayload.models[0]?.id ||
+          "",
+        error:
+          health.status === "ok"
+            ? null
+            : health.detail ||
+              "Cursor Agent bridge is not ready. Start ./momihelm cursor-bridge.",
+      }));
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not reach Cursor Agent endpoints.";
+      setSession((current) => ({
+        ...current,
+        cursorBridgeStatus: "unavailable",
+        error: message,
+      }));
+    }
+  }
+
+  async function refreshCursorRecommendation() {
+    const objective = prompt.trim();
+    if (!objective) return;
+    try {
+      const recommendation = await recommendCursorRoute({
+        objective,
+        workflow: "agent",
+      });
+      setSession((current) => ({
+        ...current,
+        cursorRecommendedModel: recommendation.recommended_model_id,
+        cursorRecommendationReasons: recommendation.reasons,
+        cursorRecommendedPath: recommendation.recommended_path ?? null,
+        cursorPathReasons: recommendation.path_reasons ?? [],
+        cursorRecommendationBasis: recommendation.recommendation_basis ?? null,
+        cursorRecommendationConfidence:
+          typeof recommendation.confidence === "number"
+            ? recommendation.confidence
+            : null,
+        cursorSelectedModel:
+          current.cursorSelectedModel || recommendation.recommended_model_id,
+      }));
+    } catch {
+      // Recommendation is optional for the experimental path.
+    }
+  }
+
+  async function executeCursorAgent() {
+    const requestPrompt = prompt.trim();
+    if (!requestPrompt) return;
+    if (!cursorSelectedModel) {
+      setSession((current) => ({
+        ...current,
+        error: "Select a Cursor model before running the Cursor Agent.",
+      }));
+      return;
+    }
+
+    setSession((current) => ({
+      ...current,
+      loading: true,
+      error: null,
+      cursorAgentResult: null,
+    }));
+    setAnnouncement("Running Cursor Agent through the local SDK bridge.");
+
+    try {
+      if (!cursorRecommendedModel) {
+        await refreshCursorRecommendation();
+      }
+      const response = await runCursorAgent({
+        prompt: requestPrompt,
+        selected_model: cursorSelectedModel,
+        recommended_model: cursorRecommendedModel,
+        workflow: "agent",
+        validation_command: cursorValidationCommand || null,
+        include_diff_in_response: true,
+      });
+      setSession((current) => ({
+        ...current,
+        loading: false,
+        submittedPrompt: requestPrompt,
+        cursorAgentResult: {
+          answer: response.answer,
+          status: response.status,
+          model_used: response.model_used,
+          selected_model: response.selected_model,
+          recommended_model: response.recommended_model,
+          sdk_run_id: response.sdk_run_id,
+          session_id: response.session_id,
+          attempt_id: response.attempt_id,
+          result_fingerprint: response.result_fingerprint,
+          claim: response.claim,
+          error: response.error,
+          workspace_cwd: response.workspace_cwd ?? null,
+          workspace_kind: response.workspace_kind ?? null,
+          sdk_sandbox_enabled: response.sdk_sandbox_enabled ?? null,
+          changed_files: response.changed_files ?? [],
+          diff_text: response.diff_text ?? null,
+          diff_fingerprint: response.diff_fingerprint ?? null,
+          diff_truncated: Boolean(response.diff_truncated),
+          validation_command: response.validation_command ?? null,
+          validation_status: response.validation_status ?? null,
+          validation_exit_code: response.validation_exit_code ?? null,
+          validation_stdout: response.validation_stdout ?? null,
+          validation_stderr: response.validation_stderr ?? null,
+        },
+        error:
+          response.status === "finished"
+            ? null
+            : response.error ||
+              `Cursor Agent Coding Run finished with status ${response.status}`,
+      }));
+      setAnnouncement(
+        response.status === "finished"
+          ? "Cursor Agent Coding Run result is ready in MomiHelm."
+          : "Cursor Agent Coding Run did not finish successfully.",
+      );
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Cursor Agent run failed";
+      setSession((current) => ({
+        ...current,
+        loading: false,
+        error: message,
+      }));
+      setAnnouncement("Cursor Agent could not complete. Your draft was preserved.");
+    }
   }
 
   async function classifyObjective() {
@@ -384,9 +551,33 @@ export default function Playground({
     setAnnouncement(
       nextMode === "coding"
         ? "Coding-session mode is ready."
-        : "Quick-question mode is ready.",
+        : nextMode === "cursor_agent"
+          ? "Cursor Agent Coding Run experimental mode is ready."
+          : "Quick-question mode is ready.",
     );
+    if (nextMode === "cursor_agent") {
+      void prepareCursorAgentMode();
+      if (prompt.trim()) {
+        void refreshCursorRecommendation();
+      }
+    }
   }
+
+  const primaryAction =
+    mode === "quick"
+      ? `Ask ${PRODUCT_NAME}`
+      : mode === "cursor_agent"
+        ? "Run Cursor Agent Coding Run"
+        : codingPhase === "draft"
+          ? "Review coding objective"
+          : codingPhase === "review"
+            ? "Run coding attempt"
+            : codingPhase === "awaiting_verification"
+              ? "Verify current attempt below"
+              : codingPhase === "evaluated"
+                ? "Session evaluated"
+                : "Run next attempt";
+
 
   function updateContext(changes: Partial<CodingContext>) {
     setSession((current) => ({
@@ -443,19 +634,6 @@ export default function Playground({
     focusComposer();
   }
 
-  const primaryAction =
-    mode === "quick"
-      ? `Ask ${PRODUCT_NAME}`
-      : codingPhase === "draft"
-        ? "Review coding objective"
-        : codingPhase === "review"
-          ? "Run coding attempt"
-          : codingPhase === "awaiting_verification"
-            ? "Verify current attempt below"
-            : codingPhase === "evaluated"
-              ? "Session evaluated"
-              : "Run next attempt";
-
   return (
     <div className="page playground-page">
       <header className="playground-header">
@@ -464,8 +642,8 @@ export default function Playground({
           <h1>Playground</h1>
           <p>
             Run a verified coding session to measure Model Fit and
-            Cost-to-Success, or use Quick question for the original lightweight
-            experience.
+            Cost-to-Success, use Quick question for the lightweight path, or try
+            Cursor Agent (experimental) through the official Cursor SDK bridge.
           </p>
         </div>
       </header>
@@ -488,6 +666,15 @@ export default function Playground({
         >
           <span>Quick question</span>
           <small>Ask without outcome tracking</small>
+        </button>
+        <button
+          type="button"
+          className={mode === "cursor_agent" ? "active" : ""}
+          disabled={Boolean(codingSession && codingPhase !== "evaluated")}
+          onClick={() => setMode("cursor_agent")}
+        >
+          <span>Cursor Agent Coding Run (experimental)</span>
+          <small>SDK coding agent against a disposable sandbox</small>
         </button>
       </div>
 
@@ -513,7 +700,9 @@ export default function Playground({
             ? continuingSession
               ? "What should MomiHelm try next?"
               : "What coding objective should MomiHelm help complete?"
-            : "What would you like help with?"}
+            : mode === "cursor_agent"
+              ? "What coding change should the Cursor Agent make in the sandbox?"
+              : "What would you like help with?"}
         </label>
         <textarea
           ref={promptRef}
@@ -523,6 +712,8 @@ export default function Playground({
           placeholder={
             mode === "coding"
               ? "Describe the bug, feature, review, tests, or coding outcome you need..."
+              : mode === "cursor_agent"
+                ? "Example: Update hello.py so greet() returns a personalized greeting, then keep tests green."
               : "Ask a question, analyze an idea, or request help..."
           }
           value={prompt}
@@ -535,8 +726,139 @@ export default function Playground({
               error: null,
             }))
           }
+          onBlur={() => {
+            if (mode === "cursor_agent" && prompt.trim()) {
+              void refreshCursorRecommendation();
+            }
+          }}
           onKeyDown={handlePromptKeyDown}
         />
+
+        {mode === "cursor_agent" && (
+          <section
+            className="cursor-agent-panel"
+            aria-label="Cursor Agent Coding Run controls"
+          >
+            <div className="continuing-session-banner">
+              <span>Experimental</span>
+              <strong>Cursor Agent Coding Run via official Cursor SDK</strong>
+              <small>
+                Runs against the disposable local sandbox by default. Dirty Git
+                worktrees are hard-blocked. Raw diffs are shown for this run only
+                and are not persisted by default. Bridge status:{" "}
+                {cursorBridgeStatus ?? "unknown"}.
+              </small>
+            </div>
+
+            <div className="coding-setup-grid">
+              <label>
+                Recommended model
+                <input
+                  type="text"
+                  value={cursorRecommendedModel || "Not recommended yet"}
+                  readOnly
+                />
+              </label>
+              <label>
+                Selected Cursor model
+                <select
+                  value={cursorSelectedModel}
+                  disabled={loading || cursorModels.length === 0}
+                  onChange={(event) =>
+                    setSession((current) => ({
+                      ...current,
+                      cursorSelectedModel: event.target.value,
+                    }))
+                  }
+                >
+                  {cursorModels.length === 0 ? (
+                    <option value="">No models available</option>
+                  ) : (
+                    cursorModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.display_name} ({model.id})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <label>
+                Validation command (allowlisted)
+                <select
+                  value={cursorValidationCommand}
+                  disabled={loading}
+                  onChange={(event) =>
+                    setSession((current) => ({
+                      ...current,
+                      cursorValidationCommand: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">No validation</option>
+                  <option value="python3 -m pytest">python3 -m pytest</option>
+                  <option value="python -m pytest">python -m pytest</option>
+                  <option value="pytest">pytest</option>
+                  <option value="npm test">npm test</option>
+                  <option value="npm run test">npm run test</option>
+                  <option value="npm run lint">npm run lint</option>
+                </select>
+              </label>
+            </div>
+
+            {cursorRecommendationReasons.length > 0 && (
+              <ul className="muted-list">
+                {cursorRecommendationReasons.slice(0, 3).map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
+
+            {cursorRecommendedPath && (
+              <div className="continuing-session-banner">
+                <span>Cost-efficient path (heuristic)</span>
+                <strong>
+                  {cursorRecommendedPath === "local_ollama"
+                    ? "Prefer local Ollama via Quick Question / Coding Session"
+                    : "Prefer Cursor SDK Coding Run"}
+                </strong>
+                <small>
+                  Basis: {cursorRecommendationBasis ?? "heuristic"}
+                  {cursorRecommendationConfidence != null
+                    ? ` · confidence ${Math.round(cursorRecommendationConfidence * 100)}%`
+                    : ""}
+                  . Local Ollama answers text tasks; it does not edit the sandbox
+                  unless you use Cursor SDK.
+                </small>
+                {cursorPathReasons.length > 0 && (
+                  <ul className="muted-list">
+                    {cursorPathReasons.slice(0, 3).map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <div className="composer-submit">
+              <button
+                type="button"
+                className="secondary"
+                disabled={loading || !prompt.trim()}
+                onClick={() => void refreshCursorRecommendation()}
+              >
+                Refresh recommendation
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={loading}
+                onClick={() => void prepareCursorAgentMode()}
+              >
+                Recheck bridge
+              </button>
+            </div>
+          </section>
+        )}
 
         {reviewingClassification || continuingSession ? (
           <CodingSessionSetup
@@ -563,7 +885,7 @@ export default function Playground({
         <div className="composer-tools">
           <label
             className={
-              loading || composerLocked
+              loading || composerLocked || mode === "cursor_agent"
                 ? "attachment-button disabled"
                 : "attachment-button"
             }
@@ -578,7 +900,7 @@ export default function Playground({
             className="attachment-input"
             type="file"
             accept="image/*"
-            disabled={loading || composerLocked}
+            disabled={loading || composerLocked || mode === "cursor_agent"}
             onChange={(event) =>
               handleFileChange(event.target.files?.[0] ?? null)
             }
@@ -665,6 +987,124 @@ export default function Playground({
             Try again
           </button>
         </div>
+      )}
+
+      {mode === "cursor_agent" && cursorAgentResult && (
+        <section className="result" aria-label="Cursor Agent Coding Run result">
+          <div className="result-context">
+            <span>Cursor Agent Coding Run (experimental)</span>
+            <p>{submittedPrompt}</p>
+            <small>
+              Selected: {cursorAgentResult.selected_model}
+              {cursorAgentResult.recommended_model
+                ? ` · Recommended: ${cursorAgentResult.recommended_model}`
+                : ""}
+              {cursorAgentResult.model_used
+                ? ` · Used: ${cursorAgentResult.model_used}`
+                : ""}
+              {cursorAgentResult.sdk_run_id
+                ? ` · Run: ${cursorAgentResult.sdk_run_id}`
+                : ""}
+              {cursorAgentResult.workspace_kind
+                ? ` · Workspace: ${cursorAgentResult.workspace_kind}`
+                : ""}
+              {cursorAgentResult.validation_status
+                ? ` · Validation: ${cursorAgentResult.validation_status}`
+                : ""}
+            </small>
+          </div>
+          <article className="answer-card">
+            <header className="answer-header">
+              <div className="answer-brandmark" aria-hidden="true">
+                M
+              </div>
+              <div>
+                <span>{PRODUCT_NAME} + Cursor SDK</span>
+                <h2>Coding Run result</h2>
+              </div>
+              <span className="answer-state">{cursorAgentResult.status}</span>
+            </header>
+            <div className="answer-content">
+              <ReactMarkdown>
+                {cursorAgentResult.answer ||
+                  cursorAgentResult.error ||
+                  "*No answer content was returned.*"}
+              </ReactMarkdown>
+            </div>
+            {cursorAgentResult.workspace_cwd && (
+              <p className="muted">
+                Workspace: <code>{cursorAgentResult.workspace_cwd}</code>
+                {cursorAgentResult.sdk_sandbox_enabled != null
+                  ? ` · SDK sandbox enabled: ${String(cursorAgentResult.sdk_sandbox_enabled)}`
+                  : ""}
+              </p>
+            )}
+            {cursorAgentResult.changed_files.length > 0 && (
+              <div className="answer-content">
+                <h3>Changed files</h3>
+                <ul className="muted-list">
+                  {cursorAgentResult.changed_files.map((file) => (
+                    <li key={file}>
+                      <code>{file}</code>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {cursorAgentResult.diff_text && (
+              <div className="answer-content">
+                <h3>
+                  Diff for this run
+                  {cursorAgentResult.diff_truncated ? " (truncated)" : ""}
+                </h3>
+                <pre>
+                  <code>{cursorAgentResult.diff_text}</code>
+                </pre>
+                <small>
+                  Shown to you for this run only. Raw diffs are not persisted by
+                  default
+                  {cursorAgentResult.diff_fingerprint
+                    ? ` · fingerprint ${cursorAgentResult.diff_fingerprint.slice(0, 12)}…`
+                    : ""}
+                  .
+                </small>
+              </div>
+            )}
+            {cursorAgentResult.validation_command && (
+              <div className="answer-content">
+                <h3>Validation</h3>
+                <p>
+                  <code>{cursorAgentResult.validation_command}</code> →{" "}
+                  {cursorAgentResult.validation_status ?? "n/a"}
+                  {cursorAgentResult.validation_exit_code != null
+                    ? ` (exit ${cursorAgentResult.validation_exit_code})`
+                    : ""}
+                </p>
+                {(cursorAgentResult.validation_stdout ||
+                  cursorAgentResult.validation_stderr) && (
+                  <pre>
+                    <code>
+                      {[
+                        cursorAgentResult.validation_stdout,
+                        cursorAgentResult.validation_stderr,
+                      ]
+                        .filter(Boolean)
+                        .join("\n")}
+                    </code>
+                  </pre>
+                )}
+              </div>
+            )}
+            <footer className="answer-footer">
+              <span>{cursorAgentResult.claim}</span>
+              <small>
+                Fingerprint: {cursorAgentResult.result_fingerprint ?? "n/a"} ·
+                Session: {cursorAgentResult.session_id ?? "n/a"} · Attempt:{" "}
+                {cursorAgentResult.attempt_id ?? "n/a"}
+              </small>
+            </footer>
+          </article>
+        </section>
       )}
 
       {result && (

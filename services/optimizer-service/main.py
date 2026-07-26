@@ -15,6 +15,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
+from cursor.models import list_cursor_models
+from cursor.router import (
+    CursorRouteRecommendation,
+    CursorRouteRequest,
+    compare_cursor_models,
+    recommend_cursor_route,
+)
 from graph import run_optimizer
 from observability.exporter import get_trace_exporter
 from observability.repository import get_export_counts, get_export_record, record_export_attempt
@@ -42,7 +49,9 @@ from usage.session_repository import (
     evaluate_coding_session,
     get_coding_session,
     get_coding_session_evaluation,
+    ingest_cursor_composers,
     list_coding_sessions,
+    persist_cursor_sdk_run,
     update_coding_session,
 )
 from usage.scoring import DecisionEvaluationResponse, EvaluationOptions
@@ -54,6 +63,10 @@ from usage.session_schemas import (
     CodingSessionListResponse,
     CodingSessionStatus,
     CodingSessionUpdateRequest,
+    CursorIngestRequest,
+    CursorIngestResponse,
+    CursorSdkRunPersistRequest,
+    CursorSdkRunPersistResponse,
     VerificationCreateRequest,
     VerificationResponse,
 )
@@ -360,6 +373,45 @@ def coding_session_evaluation_create(
         )
     except CodingSessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="coding_session_not_found") from exc
+
+
+@app.post(
+    "/connectors/cursor/ingest",
+    response_model=CursorIngestResponse,
+    status_code=201,
+)
+def cursor_connector_ingest(req: CursorIngestRequest):
+    return ingest_cursor_composers(req)
+
+
+@app.post(
+    "/connectors/cursor-sdk/runs",
+    response_model=CursorSdkRunPersistResponse,
+    status_code=201,
+)
+def cursor_sdk_run_persist(req: CursorSdkRunPersistRequest):
+    try:
+        return persist_cursor_sdk_run(req)
+    except CodingSessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="coding_session_not_found") from exc
+
+
+@app.get("/cursor/models")
+def cursor_models_list():
+    return {"models": list_cursor_models(), "count": len(list_cursor_models())}
+
+
+@app.post("/cursor/route/recommend", response_model=CursorRouteRecommendation)
+def cursor_route_recommend(req: CursorRouteRequest):
+    return recommend_cursor_route(req)
+
+
+@app.get("/cursor/route/compare")
+def cursor_route_compare(
+    executed_model: str = Query(min_length=1, max_length=200),
+    recommended_model: str = Query(min_length=1, max_length=200),
+):
+    return compare_cursor_models(executed_model, recommended_model)
 
 
 @app.get("/observability/status", response_model=ObservabilityStatusResponse)

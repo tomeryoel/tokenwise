@@ -139,6 +139,304 @@ open_frontend() {
     fi
 }
 
+web_profiles() {
+    if [ "${ENABLE_OPENAI_PROVIDER:-false}" = "true" ]; then
+        printf '%s' ""
+    else
+        printf '%s' "web-ollama"
+    fi
+}
+
+web_compose() {
+    profile=$(web_profiles)
+    if [ -n "$profile" ]; then
+        COMPOSE_PROFILES="$profile" docker compose -f docker-compose.yml -f docker-compose.web.yml "$@"
+    else
+        docker compose -f docker-compose.yml -f docker-compose.web.yml "$@"
+    fi
+}
+
+prepare_web_caddy() {
+    if [ "${MOMIHELM_WEB_TLS:-true}" = "true" ]; then
+        MOMIHELM_CADDYFILE=./deploy/Caddyfile
+    else
+        MOMIHELM_CADDYFILE=./deploy/Caddyfile.http
+    fi
+    export MOMIHELM_CADDYFILE
+}
+
+check_web_config() {
+    tls=${MOMIHELM_WEB_TLS:-true}
+    if [ "$tls" = "true" ]; then
+        [ -n "${MOMIHELM_PUBLIC_DOMAIN:-}" ] ||
+            fail "Set MOMIHELM_PUBLIC_DOMAIN in .env (for example app.example.com)."
+        [ -n "${MOMIHELM_ACME_EMAIL:-}" ] ||
+            fail "Set MOMIHELM_ACME_EMAIL in .env for Let's Encrypt certificates."
+        [ "${MOMIHELM_COOKIE_SECURE:-false}" = "true" ] ||
+            fail "Set MOMIHELM_COOKIE_SECURE=true when MOMIHELM_WEB_TLS=true."
+        expected_origin="https://${MOMIHELM_PUBLIC_DOMAIN}"
+    else
+        expected_origin=${MOMIHELM_PUBLIC_URL:-}
+        [ -n "$expected_origin" ] ||
+            fail "Set MOMIHELM_PUBLIC_URL in .env (for example http://203.0.113.10)."
+        [ "${MOMIHELM_COOKIE_SECURE:-false}" = "false" ] ||
+            say "Warning: HTTP mode should keep MOMIHELM_COOKIE_SECURE=false."
+    fi
+
+    allowed=${MOMIHELM_ALLOWED_ORIGINS:-}
+    [ -n "$allowed" ] ||
+        fail "Set MOMIHELM_ALLOWED_ORIGINS=$expected_origin in .env."
+    case ",$allowed," in
+        *,"$expected_origin",*) ;;
+        *)
+            fail "MOMIHELM_ALLOWED_ORIGINS must include $expected_origin."
+            ;;
+    esac
+    say "Web config: public origin $expected_origin"
+}
+
+check_web_provider() {
+    if [ "${ENABLE_OPENAI_PROVIDER:-false}" = "true" ]; then
+        [ -n "${OPENAI_API_KEY:-}" ] ||
+            fail "ENABLE_OPENAI_PROVIDER=true but OPENAI_API_KEY is empty in .env."
+        say "Web provider: OpenAI."
+        return 0
+    fi
+
+    say "Web provider: bundled Ollama container."
+    say "Ensure the server has enough disk and RAM for ${OLLAMA_LOCAL_MODEL:-llama3.1:latest}."
+}
+
+ensure_ollama_model() {
+    model=${OLLAMA_LOCAL_MODEL:-llama3.1:latest}
+    say "Waiting for the Ollama container..."
+    attempts=0
+    while [ "$attempts" -lt 60 ]; do
+        if web_compose exec -T ollama ollama list >/dev/null 2>&1; then
+            break
+        fi
+        attempts=$((attempts + 1))
+        sleep 2
+    done
+
+    if web_compose exec -T ollama ollama list 2>/dev/null | grep -F "$model" >/dev/null 2>&1; then
+        say "Ollama model $model is already present."
+        return 0
+    fi
+
+    say "Pulling $model into the Ollama container (approximately 4.6 GB)..."
+    web_compose exec -T ollama ollama pull "$model"
+}
+
+wait_for_web() {
+    public_url=${MOMIHELM_PUBLIC_URL:-}
+    if [ -z "$public_url" ] && [ "${MOMIHELM_WEB_TLS:-true}" = "true" ]; then
+        public_url="https://${MOMIHELM_PUBLIC_DOMAIN}"
+    fi
+
+    attempts=0
+    while [ "$attempts" -lt 90 ]; do
+        if web_compose exec -T frontend wget -q -O - http://127.0.0.1:5173/healthz >/dev/null 2>&1; then
+            say "MomiHelm web stack is ready."
+            say "Public URL: ${public_url:-unknown}"
+            if [ "${MOMIHELM_WEB_TLS:-true}" = "true" ]; then
+                say "DNS for ${MOMIHELM_PUBLIC_DOMAIN} must already point at this server."
+                say "Caddy will request Let's Encrypt certificates on first HTTPS visit."
+            fi
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 3
+    done
+
+    web_compose ps
+    fail "MomiHelm web stack did not become ready in time. Run: ./momihelm web-logs"
+}
+
+web_doctor() {
+    if [ ! -f "$ENV_FILE" ]; then
+        fail "Create .env from .env.web.example first: cp .env.web.example .env"
+    fi
+    load_env
+    require_docker
+    warn_disk_space
+    check_web_config
+    check_web_provider
+    prepare_web_caddy
+    web_compose config --quiet
+    say "Configuration check: Docker Compose web stack is valid."
+    say "MomiHelm web doctor passed."
+}
+
+web_start() {
+    load_env
+    require_docker
+    warn_disk_space
+    check_web_config
+    check_web_provider
+    prepare_web_caddy
+
+    web_compose stop frontend gateway-service n8n caddy >/dev/null 2>&1 || true
+    web_compose up -d --build
+
+    if [ "${ENABLE_OPENAI_PROVIDER:-false}" != "true" ]; then
+        ensure_ollama_model
+    fi
+
+    wait_for_web
+    web_compose ps
+}
+
+web_stop() {
+    require_docker
+    load_env
+    prepare_web_caddy
+    web_compose down
+    say "MomiHelm web stack stopped. Persistent data was preserved."
+}
+
+web_status() {
+    require_docker
+    load_env
+    prepare_web_caddy
+    web_compose ps
+}
+
+web_smoke() {
+    require_docker
+    load_env
+    prepare_web_caddy
+    web_compose --profile tools run --rm --no-deps release-smoke
+}
+
+web_logs() {
+    require_docker
+    load_env
+    prepare_web_caddy
+    exec web_compose logs --tail=100 -f
+}
+
+cursor_sync() {
+    load_env
+    command -v python3 >/dev/null 2>&1 ||
+        fail "python3 is required for the Cursor connector."
+    PYTHONPATH="$ROOT_DIR" exec python3 -m connectors.cursor sync "$@"
+}
+
+cursor_recommend() {
+    command -v python3 >/dev/null 2>&1 ||
+        fail "python3 is required for Cursor model recommendations."
+    if [ "$#" -eq 0 ]; then
+        fail "Usage: ./momihelm cursor-recommend \"your coding objective\""
+    fi
+    PYTHONPATH="$ROOT_DIR" exec python3 -m connectors.cursor recommend "$@"
+}
+
+cursor_bridge_ensure_venv() {
+    bridge_dir="$ROOT_DIR/bridges/cursor-sdk"
+    venv_python="$bridge_dir/.venv/bin/python"
+    if [ ! -x "$venv_python" ]; then
+        say "Creating Cursor SDK bridge virtualenv..."
+        python3 -m venv "$bridge_dir/.venv"
+        "$bridge_dir/.venv/bin/pip" install -r "$bridge_dir/requirements.txt"
+    fi
+}
+
+cursor_sandbox_init() {
+    load_env
+    command -v python3 >/dev/null 2>&1 ||
+        fail "python3 is required for the Cursor coding sandbox."
+    PYTHONPATH="$ROOT_DIR/bridges/cursor-sdk" python3 - <<'PY'
+from workspace_safety import ensure_disposable_sandbox
+print(ensure_disposable_sandbox())
+PY
+}
+
+cursor_sandbox_reset() {
+    load_env
+    command -v python3 >/dev/null 2>&1 ||
+        fail "python3 is required for the Cursor coding sandbox."
+    PYTHONPATH="$ROOT_DIR/bridges/cursor-sdk" python3 - <<'PY'
+from workspace_safety import reset_disposable_sandbox
+print(reset_disposable_sandbox())
+PY
+    say "Disposable coding sandbox reset from fixture."
+}
+
+cursor_bridge_doctor() {
+    load_env
+    command -v python3 >/dev/null 2>&1 ||
+        fail "python3 is required for cursor-bridge-doctor."
+    cursor_bridge_ensure_venv
+    bridge_dir="$ROOT_DIR/bridges/cursor-sdk"
+    venv_python="$bridge_dir/.venv/bin/python"
+
+    say "Cursor bridge doctor (optional; does not affect ./momihelm doctor)"
+    if [ -n "${MOMIHELM_CURSOR_BRIDGE_TOKEN:-}" ]; then
+        say "bridge token: configured"
+    else
+        say "bridge token: missing (set MOMIHELM_CURSOR_BRIDGE_TOKEN)"
+    fi
+    if [ -n "${CURSOR_API_KEY:-}" ]; then
+        say "CURSOR_API_KEY: configured"
+    else
+        say "CURSOR_API_KEY: missing (required for real SDK runs)"
+    fi
+
+    if ! "$venv_python" -c "import cursor_sdk; from cursor_sdk import SandboxOptions; print('cursor-sdk import: ok')" ; then
+        fail "cursor-sdk import failed inside bridges/cursor-sdk/.venv"
+    fi
+
+    sandbox_path=$(
+        PYTHONPATH="$bridge_dir" "$venv_python" - <<'PY'
+from workspace_safety import ensure_disposable_sandbox, git_preflight
+path = ensure_disposable_sandbox()
+report = git_preflight(str(path))
+print(path)
+print(f"git_repo={report.is_git_repo}")
+print(f"dirty={report.dirty}")
+print(f"block_reason={report.block_reason or 'none'}")
+PY
+    )
+    say "sandbox:"
+    printf '%s\n' "$sandbox_path" | sed 's/^/  /'
+
+    host="${MOMIHELM_CURSOR_BRIDGE_HOST:-127.0.0.1}"
+    port="${MOMIHELM_CURSOR_BRIDGE_PORT:-8787}"
+    if [ -n "${MOMIHELM_CURSOR_BRIDGE_TOKEN:-}" ] && curl -fsS \
+        -H "X-MomiHelm-Bridge-Token: ${MOMIHELM_CURSOR_BRIDGE_TOKEN}" \
+        --max-time 2 "http://${host}:${port}/health" >/tmp/momihelm-cursor-bridge-health.json 2>/dev/null; then
+        say "bridge process: reachable at http://${host}:${port}"
+    else
+        say "bridge process: not reachable (start with ./momihelm cursor-bridge)"
+    fi
+    say "Cursor bridge doctor finished."
+}
+
+cursor_bridge() {
+    load_env
+    bridge_dir="$ROOT_DIR/bridges/cursor-sdk"
+    cursor_bridge_ensure_venv
+    venv_python="$bridge_dir/.venv/bin/python"
+    [ -n "${MOMIHELM_CURSOR_BRIDGE_TOKEN:-}" ] ||
+        fail "Set MOMIHELM_CURSOR_BRIDGE_TOKEN in .env before starting the bridge."
+    [ -n "${CURSOR_API_KEY:-}" ] ||
+        fail "Set CURSOR_API_KEY in .env before starting the bridge."
+    if [ -z "${MOMIHELM_CURSOR_BRIDGE_CWD:-}" ]; then
+        MOMIHELM_CURSOR_BRIDGE_CWD=$(
+            PYTHONPATH="$bridge_dir" "$venv_python" -c \
+                "from workspace_safety import ensure_disposable_sandbox; print(ensure_disposable_sandbox())"
+        )
+        export MOMIHELM_CURSOR_BRIDGE_CWD
+    fi
+    say "Starting local Cursor SDK bridge on ${MOMIHELM_CURSOR_BRIDGE_HOST:-127.0.0.1}:${MOMIHELM_CURSOR_BRIDGE_PORT:-8787}"
+    say "Default workspace (disposable sandbox unless overridden): ${MOMIHELM_CURSOR_BRIDGE_CWD}"
+    say "Experimental: Cursor Agent Coding Run through the official cursor-sdk."
+    say "Dirty Git worktrees are hard-blocked. Validation uses an allowlist only."
+    cd "$bridge_dir"
+    exec "$venv_python" server.py
+}
+
 doctor() {
     load_env
     require_docker
@@ -160,6 +458,8 @@ start() {
     docker compose up -d --build
     wait_for_frontend
     docker compose ps
+    say ""
+    n8n_url
     open_frontend
 }
 
@@ -172,6 +472,67 @@ stop() {
 status() {
     require_docker
     docker compose ps
+    say ""
+    n8n_url
+}
+
+n8n_editor_url() {
+    printf '%s\n' "http://127.0.0.1:5679"
+}
+
+n8n_skeleton_url() {
+    printf '%s\n' "http://127.0.0.1:5679/workflow/tokenwiseskeleton"
+}
+
+n8n_url() {
+    say "n8n editor (loopback):     $(n8n_editor_url)"
+    say "Gateway skeleton workflow: $(n8n_skeleton_url)"
+    say "Usage summary workflow:    http://127.0.0.1:5679/workflow/tokenwiseusagesummary"
+    say "Internal webhook (Docker): http://n8n:5678/webhook/tokenwise"
+}
+
+n8n_status() {
+    require_docker
+    if ! docker compose ps --status running --services 2>/dev/null | grep -qx n8n; then
+        fail "n8n is not running. Start with ./momihelm start"
+    fi
+
+    host_map=$(docker compose port n8n 5678 2>/dev/null || true)
+    health=$(curl -fsS --max-time 3 "http://127.0.0.1:5679/healthz" 2>/dev/null || true)
+    webhook_ok="no"
+    if docker compose exec -T gateway-service \
+        python -c "import urllib.request; urllib.request.urlopen('http://n8n:5678/healthz', timeout=3).read()" \
+        >/dev/null 2>&1; then
+        webhook_ok="yes"
+    fi
+
+    say "n8n container: running"
+    say "host port map (container 5678): ${host_map:-unavailable}"
+    if [ "$health" = '{"status":"ok"}' ]; then
+        say "loopback editor health: ok"
+    else
+        say "loopback editor health: unreachable (expected http://127.0.0.1:5679)"
+    fi
+    say "internal Docker health reachable from gateway: ${webhook_ok}"
+    say "stable workflow ids: tokenwiseskeleton, tokenwiseusagesummary"
+    n8n_url
+    say "Logs show both workflows activated on n8n startup when healthy."
+}
+
+n8n_open() {
+    require_docker
+    url=$(n8n_skeleton_url)
+    if ! curl -fsS --max-time 3 "http://127.0.0.1:5679/healthz" >/dev/null 2>&1; then
+        fail "n8n editor is not reachable at http://127.0.0.1:5679. Is the stack running?"
+    fi
+    say "Opening ${url}"
+    if command -v open >/dev/null 2>&1; then
+        open "$url" >/dev/null 2>&1 || true
+    elif command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$url" >/dev/null 2>&1 || true
+    else
+        say "Open this URL in your browser: ${url}"
+    fi
 }
 
 smoke() {
@@ -181,14 +542,39 @@ smoke() {
 
 show_help() {
     cat <<'EOF'
-MomiHelm local commands
+MomiHelm commands
 
-  ./momihelm doctor   Check Docker, provider, model, and configuration
-  ./momihelm start    Build, start, initialize workflows, and open MomiHelm
-  ./momihelm status   Show service and health status
-  ./momihelm logs     Follow service logs
-  ./momihelm smoke    Run the end-to-end release smoke test
-  ./momihelm stop     Stop services while preserving data
+Local (loopback):
+  ./momihelm doctor        Check Docker, provider, model, and configuration
+  ./momihelm start         Build, start, initialize workflows, and open MomiHelm
+  ./momihelm status        Show service and health status
+  ./momihelm logs          Follow service logs
+  ./momihelm smoke         Run the end-to-end release smoke test
+  ./momihelm stop          Stop services while preserving data
+  ./momihelm n8n-url       Print local n8n editor and skeleton workflow URLs
+  ./momihelm n8n-status    Check n8n container, loopback editor, and workflow IDs
+  ./momihelm n8n-open      Open the gateway skeleton workflow in the browser
+
+Public web (HTTPS on a server):
+  ./momihelm web-doctor    Validate .env.web settings, domain, and TLS config
+  ./momihelm web-start     Start the public stack with Caddy + optional Ollama
+  ./momihelm web-status    Show web stack status
+  ./momihelm web-logs      Follow web stack logs
+  ./momihelm web-smoke     Run the release smoke test against the web stack
+  ./momihelm web-stop      Stop the web stack while preserving data
+
+Cursor connector + live routing:
+  ./momihelm cursor-sync           Read local Cursor state.vscdb and ingest into MomiHelm
+                                   Pass --dry-run to inspect without posting.
+  ./momihelm cursor-recommend      Recommend a Cursor model for an objective (offline)
+  ./momihelm cursor-bridge         Start the local Cursor SDK coding-run bridge
+  ./momihelm cursor-bridge-doctor  Optional bridge/SDK/sandbox checks (not part of doctor)
+  ./momihelm cursor-sandbox-init   Ensure disposable coding sandbox exists
+  ./momihelm cursor-sandbox-reset  Recreate disposable coding sandbox from fixture
+
+See docs/web-deployment.md for server setup.
+See docs/cursor-connector.md for Cursor integration and live MCP/hooks.
+See docs/cursor-agent-bridge.md for Cursor Agent Coding Run.
 EOF
 }
 
@@ -203,6 +589,27 @@ case "$command" in
         ;;
     smoke) smoke ;;
     stop) stop ;;
+    n8n-url) n8n_url ;;
+    n8n-status) n8n_status ;;
+    n8n-open) n8n_open ;;
+    web-doctor) web_doctor ;;
+    web-start) web_start ;;
+    web-status) web_status ;;
+    web-logs) web_logs ;;
+    web-smoke) web_smoke ;;
+    web-stop) web_stop ;;
+    cursor-sync)
+        shift
+        cursor_sync "$@"
+        ;;
+    cursor-recommend)
+        shift
+        cursor_recommend "$@"
+        ;;
+    cursor-bridge) cursor_bridge ;;
+    cursor-bridge-doctor) cursor_bridge_doctor ;;
+    cursor-sandbox-init) cursor_sandbox_init ;;
+    cursor-sandbox-reset) cursor_sandbox_reset ;;
     help|-h|--help) show_help ;;
     *) fail "Unknown command '$command'. Run ./momihelm help." ;;
 esac

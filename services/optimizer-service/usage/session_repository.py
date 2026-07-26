@@ -6,7 +6,10 @@ import hashlib
 import json
 import sqlite3
 import uuid
+from dataclasses import dataclass
 
+from cursor.models import get_cursor_model, normalize_cursor_model_id
+from cursor.router import CursorRouteRequest, recommend_cursor_route
 from usage.coding_classifier import classify_coding_use_case
 from usage.database import get_connection
 from usage.repository import prompt_fingerprint
@@ -27,6 +30,12 @@ from usage.session_schemas import (
     CodingSessionUpdateRequest,
     ContextSnapshotInput,
     ContextSnapshotResponse,
+    CursorComposerIngest,
+    CursorComposerLink,
+    CursorIngestRequest,
+    CursorIngestResponse,
+    CursorSdkRunPersistRequest,
+    CursorSdkRunPersistResponse,
     VerificationCreateRequest,
     VerificationResponse,
 )
@@ -692,4 +701,446 @@ def get_coding_session_evaluation(
         user_id=user_id,
         options=options,
         db_path=db_path,
+    )
+
+
+def _infer_primary_language(workspace_path: str | None) -> str | None:
+    if not workspace_path:
+        return None
+    lowered = workspace_path.lower()
+    if lowered.endswith(".py") or "/python" in lowered:
+        return "python"
+    if lowered.endswith((".ts", ".tsx")):
+        return "typescript"
+    if lowered.endswith((".js", ".jsx")):
+        return "javascript"
+    if lowered.endswith(".go"):
+        return "go"
+    if lowered.endswith(".rs"):
+        return "rust"
+    return None
+
+
+def _get_external_session(
+    conn: sqlite3.Connection,
+    *,
+    organization_id: str,
+    user_id: str,
+    external_source: str,
+    external_session_id: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT * FROM coding_sessions
+        WHERE organization_id = ?
+          AND user_id = ?
+          AND external_source = ?
+          AND external_session_id = ?
+        """,
+        (organization_id, user_id, external_source, external_session_id),
+    ).fetchone()
+
+
+def ingest_cursor_composers(
+    req: CursorIngestRequest,
+    db_path: str | None = None,
+) -> CursorIngestResponse:
+    sessions_created = 0
+    sessions_updated = 0
+    attempts_created = 0
+    attempts_skipped = 0
+    composer_links: list[CursorComposerLink] = []
+
+    with get_connection(db_path) as conn:
+        for composer in req.composers:
+            link = _ingest_single_cursor_composer(conn, req, composer)
+            composer_links.append(link)
+            sessions_created += link.sessions_created
+            sessions_updated += link.sessions_updated
+            attempts_created += link.attempts_created
+            attempts_skipped += link.attempts_skipped
+        conn.commit()
+
+    return CursorIngestResponse(
+        discovered_count=req.discovered_count,
+        selected_count=req.selected_count or len(req.composers),
+        sessions_created=sessions_created,
+        sessions_updated=sessions_updated,
+        attempts_created=attempts_created,
+        attempts_skipped=attempts_skipped,
+        composer_links=[
+            CursorComposerLink(
+                external_composer_id=link.external_composer_id,
+                session_id=link.session_id,
+            )
+            for link in composer_links
+        ],
+    )
+
+
+@dataclass
+class _ComposerIngestStats:
+    external_composer_id: str
+    session_id: str
+    sessions_created: int = 0
+    sessions_updated: int = 0
+    attempts_created: int = 0
+    attempts_skipped: int = 0
+
+
+def _ingest_single_cursor_composer(
+    conn: sqlite3.Connection,
+    req: CursorIngestRequest,
+    composer: CursorComposerIngest,
+) -> _ComposerIngestStats:
+    existing = _get_external_session(
+        conn,
+        organization_id=req.organization_id,
+        user_id=req.user_id,
+        external_source="cursor",
+        external_session_id=composer.external_composer_id,
+    )
+
+    stats = _ComposerIngestStats(
+        external_composer_id=composer.external_composer_id,
+        session_id="",
+    )
+
+    if existing is None:
+        classification = classify_coding_use_case(composer.objective)
+        session_id = _new_id("cs")
+        conn.execute(
+            """
+            INSERT INTO coding_sessions (
+                session_id, organization_id, user_id, dept_id, policy_mode,
+                objective_fingerprint, predicted_task_type,
+                classification_confidence, classification_source,
+                classification_reason, clarification_required, complexity_level,
+                external_source, external_session_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'connector', ?, ?, ?, 'cursor', ?)
+            """,
+            (
+                session_id,
+                req.organization_id,
+                req.user_id,
+                req.dept_id,
+                req.policy_mode,
+                prompt_fingerprint(composer.objective),
+                classification.task_type,
+                classification.confidence,
+                classification.reason,
+                1 if classification.clarification_required else 0,
+                None,
+                composer.external_composer_id,
+            ),
+        )
+        stats.sessions_created = 1
+    else:
+        session_id = existing["session_id"]
+        conn.execute(
+            """
+            UPDATE coding_sessions
+            SET updated_at = datetime('now')
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        )
+        stats.sessions_updated = 1
+
+    stats.session_id = session_id
+
+    classification = classify_coding_use_case(composer.objective)
+    route = recommend_cursor_route(
+        CursorRouteRequest(
+            objective=composer.objective,
+            task_type=classification.task_type,
+            complexity_level="medium",
+            policy_mode=req.policy_mode,
+            workflow=composer.workflow,
+        )
+    )
+
+    for bubble in composer.bubbles:
+        event_key = f"cursor:{composer.external_composer_id}:{bubble.external_bubble_id}"
+        if conn.execute(
+            "SELECT 1 FROM cursor_ingest_events WHERE event_key = ?",
+            (event_key,),
+        ).fetchone():
+            stats.attempts_skipped += 1
+            continue
+
+        existing_attempt = conn.execute(
+            "SELECT attempt_id FROM coding_attempts WHERE external_attempt_id = ?",
+            (event_key,),
+        ).fetchone()
+        if existing_attempt is not None:
+            stats.attempts_skipped += 1
+            continue
+
+        attempt_number = int(
+            conn.execute(
+                """
+                SELECT COALESCE(MAX(attempt_number), 0) + 1
+                FROM coding_attempts
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()[0]
+        )
+        attempt_id = _new_id("ca")
+        total_tokens = bubble.input_tokens + bubble.output_tokens
+        modeled_cost = round(total_tokens * 0.000002, 6) if total_tokens else None
+        normalized_model = normalize_cursor_model_id(bubble.model) or bubble.model or "unknown"
+        executed_model = get_cursor_model(normalized_model)
+        executed_tier = executed_model.momihelm_tier if executed_model else "balanced"
+
+        conn.execute(
+            """
+            INSERT INTO coding_attempts (
+                attempt_id, session_id, attempt_number, request_id,
+                recommended_tier, requested_tier, executed_tier,
+                provider, model, recommended_workflow,
+                executed_workflow, actual_api_cost, modeled_local_cost,
+                latency_ms, external_attempt_id, completed_at
+            ) VALUES (?, ?, ?, NULL, ?, ?, ?, 'cursor', ?, ?, ?, NULL, ?, ?, ?, datetime('now'))
+            """,
+            (
+                attempt_id,
+                session_id,
+                attempt_number,
+                route.recommended_tier,
+                executed_tier,
+                executed_tier,
+                normalized_model,
+                composer.workflow,
+                bubble.workflow,
+                modeled_cost,
+                bubble.latency_ms,
+                event_key,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO context_snapshots (
+                context_id, attempt_id, primary_language, repository_size,
+                files_supplied, test_files_supplied, has_error_details,
+                has_acceptance_criteria, has_relevant_tests,
+                approximate_context_tokens, context_source, privacy_classification
+            ) VALUES (?, ?, ?, 'unknown', 0, 0, 0, 0, 0, ?, 'connector', 'standard')
+            """,
+            (
+                _new_id("ctx"),
+                attempt_id,
+                _infer_primary_language(composer.workspace_path),
+                bubble.input_tokens,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO cursor_ingest_events (event_key, session_id, attempt_id)
+            VALUES (?, ?, ?)
+            """,
+            (event_key, session_id, attempt_id),
+        )
+        stats.attempts_created += 1
+
+    conn.execute(
+        """
+        UPDATE coding_sessions
+        SET status = 'active',
+            updated_at = datetime('now')
+        WHERE session_id = ?
+        """,
+        (session_id,),
+    )
+    return stats
+
+
+def persist_cursor_sdk_run(
+    req: CursorSdkRunPersistRequest,
+    db_path: str | None = None,
+) -> CursorSdkRunPersistResponse:
+    classification = classify_coding_use_case(req.objective)
+    result_fingerprint = (
+        prompt_fingerprint(req.result_text) if req.result_text else None
+    )
+    run_key = (
+        f"cursor-sdk:{req.sdk_run_id}"
+        if req.sdk_run_id
+        else f"cursor-sdk:local-{uuid.uuid4().hex}"
+    )
+    model_for_attempt = req.model_used or req.selected_model
+    recommended = get_cursor_model(req.recommended_model)
+    executed = get_cursor_model(model_for_attempt)
+    recommended_tier = recommended.momihelm_tier if recommended else "balanced"
+    executed_tier = executed.momihelm_tier if executed else "balanced"
+    changed_files_json = json.dumps(req.changed_files)
+
+    def _existing_response(existing) -> CursorSdkRunPersistResponse:
+        files_raw = existing["changed_files_json"] if "changed_files_json" in existing.keys() else None
+        try:
+            files = json.loads(files_raw) if files_raw else []
+        except (TypeError, json.JSONDecodeError):
+            files = []
+        if not isinstance(files, list):
+            files = []
+        return CursorSdkRunPersistResponse(
+            session_id=existing["session_id"],
+            attempt_id=existing["attempt_id"],
+            run_key=existing["run_key"],
+            result_fingerprint=existing["result_fingerprint"],
+            selected_model=existing["selected_model"] or req.selected_model,
+            recommended_model=existing["recommended_model"],
+            model_used=existing["model_used"],
+            status=existing["status"],
+            sdk_run_id=existing["sdk_run_id"],
+            workspace_kind=existing["workspace_kind"] if "workspace_kind" in existing.keys() else None,
+            changed_files=[str(item) for item in files],
+            diff_fingerprint=existing["diff_fingerprint"] if "diff_fingerprint" in existing.keys() else None,
+            validation_command=existing["validation_command"] if "validation_command" in existing.keys() else None,
+            validation_status=existing["validation_status"] if "validation_status" in existing.keys() else None,
+        )
+
+    with get_connection(db_path) as conn:
+        existing = conn.execute(
+            "SELECT * FROM cursor_sdk_runs WHERE run_key = ?",
+            (run_key,),
+        ).fetchone()
+        if existing is not None:
+            return _existing_response(existing)
+
+        session_id = req.coding_session_id
+        if session_id:
+            _session_row(conn, session_id, req.organization_id, req.user_id)
+        else:
+            session_id = _new_id("cs")
+            conn.execute(
+                """
+                INSERT INTO coding_sessions (
+                    session_id, organization_id, user_id, dept_id, policy_mode,
+                    objective_fingerprint, predicted_task_type,
+                    classification_confidence, classification_source,
+                    classification_reason, clarification_required, complexity_level,
+                    external_source, external_session_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'connector', ?, ?, NULL, 'cursor-sdk', ?)
+                """,
+                (
+                    session_id,
+                    req.organization_id,
+                    req.user_id,
+                    req.dept_id,
+                    req.policy_mode,
+                    prompt_fingerprint(req.objective),
+                    classification.task_type,
+                    classification.confidence,
+                    classification.reason,
+                    1 if classification.clarification_required else 0,
+                    run_key,
+                ),
+            )
+
+        attempt_number = int(
+            conn.execute(
+                """
+                SELECT COALESCE(MAX(attempt_number), 0) + 1
+                FROM coding_attempts
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()[0]
+        )
+        attempt_id = _new_id("ca")
+        request_id = f"cursor-sdk-{uuid.uuid4().hex}"
+        conn.execute(
+            """
+            INSERT INTO coding_attempts (
+                attempt_id, session_id, attempt_number, request_id,
+                recommended_tier, requested_tier, executed_tier,
+                provider, model, recommended_workflow, executed_workflow,
+                actual_api_cost, modeled_local_cost, latency_ms,
+                external_attempt_id, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'cursor-sdk', ?, ?, ?, NULL, NULL, ?, ?, datetime('now'))
+            """,
+            (
+                attempt_id,
+                session_id,
+                attempt_number,
+                request_id,
+                recommended_tier,
+                executed_tier,
+                executed_tier,
+                model_for_attempt,
+                req.workflow,
+                req.workflow,
+                req.duration_ms,
+                run_key,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO context_snapshots (
+                context_id, attempt_id, primary_language, repository_size,
+                files_supplied, test_files_supplied, has_error_details,
+                has_acceptance_criteria, has_relevant_tests,
+                approximate_context_tokens, context_source, privacy_classification
+            ) VALUES (?, ?, NULL, 'unknown', 0, 0, 0, 0, 0, 0, 'connector', 'standard')
+            """,
+            (_new_id("ctx"), attempt_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO cursor_sdk_runs (
+                run_key, session_id, attempt_id, sdk_run_id, sdk_agent_id,
+                selected_model, recommended_model, model_used, status,
+                result_fingerprint, error_detail, duration_ms,
+                workspace_kind, changed_files_json, diff_fingerprint,
+                validation_command, validation_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_key,
+                session_id,
+                attempt_id,
+                req.sdk_run_id,
+                req.sdk_agent_id,
+                req.selected_model,
+                req.recommended_model,
+                req.model_used,
+                req.status,
+                result_fingerprint,
+                (req.error_detail or "")[:1000] or None,
+                req.duration_ms,
+                req.workspace_kind,
+                changed_files_json,
+                req.diff_fingerprint,
+                req.validation_command,
+                req.validation_status,
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE coding_sessions
+            SET status = 'active',
+                updated_at = datetime('now')
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        )
+        conn.commit()
+
+    return CursorSdkRunPersistResponse(
+        session_id=session_id,
+        attempt_id=attempt_id,
+        run_key=run_key,
+        result_fingerprint=result_fingerprint,
+        selected_model=req.selected_model,
+        recommended_model=req.recommended_model,
+        model_used=req.model_used,
+        status=req.status,
+        sdk_run_id=req.sdk_run_id,
+        workspace_kind=req.workspace_kind,
+        changed_files=list(req.changed_files),
+        diff_fingerprint=req.diff_fingerprint,
+        validation_command=req.validation_command,
+        validation_status=req.validation_status,
     )

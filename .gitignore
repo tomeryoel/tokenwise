@@ -3,8 +3,14 @@
 .env.*
 !.env.example
 !.env.langfuse.example
+!.env.web.example
 *.pem
 *.key
+
+# Local MomiHelm connector/runtime artifacts
+.momihelm/
+bridges/cursor-sdk/.venv/
+bridges/cursor-sdk/workspaces/
 
 # Python
 __pycache__/

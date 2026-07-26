@@ -84,8 +84,10 @@ preview, document ingestion + approval, MVP scope, and commercial roadmap) is sp
 ```
 tokenwise/
   docker-compose.yml          # core application stack
+  docker-compose.web.yml      # public HTTPS deployment override (Caddy + Ollama)
   docker-compose.langfuse.yml # optional self-hosted Langfuse override
   .env.example                # local ports and provider configuration
+  .env.web.example            # public web deployment configuration template
   .env.langfuse.example       # placeholder-only Langfuse configuration
   momihelm / momihelm.ps1     # lifecycle commands for macOS/Linux and Windows
   README.md
@@ -157,10 +159,23 @@ Admin. Members receive user-scoped Dashboard data; owners and admins receive
 organization-scoped data. Every user can change their own password from
 **Account**; doing so revokes their other active sessions.
 
-Only the frontend is published to the host at `127.0.0.1:5173`. n8n, the
-gateway, and all four Python services are private inside the Docker network.
-For HTTPS deployment, set `MOMIHELM_COOKIE_SECURE=true` and configure the exact
-public origin in `MOMIHELM_ALLOWED_ORIGINS`.
+The frontend is published to the host at `127.0.0.1:5173`. The n8n editor is
+also available on loopback only at `127.0.0.1:5679` for local diagnostics
+(gateway skeleton: `/workflow/tokenwiseskeleton`). The gateway and Python
+services remain private inside the Docker network; webhook traffic stays on
+`http://n8n:5678` and is not host-published. For HTTPS deployment, set
+`MOMIHELM_COOKIE_SECURE=true` and configure the exact public origin in
+`MOMIHELM_ALLOWED_ORIGINS`.
+
+For a public internet deployment with automatic HTTPS, see
+[docs/web-deployment.md](docs/web-deployment.md) and use `./momihelm web-start`.
+
+For Cursor IDE integration, see [docs/cursor-connector.md](docs/cursor-connector.md)
+and run `./momihelm cursor-sync`.
+
+For the experimental Cursor Agent Coding Run bridge, see
+[docs/cursor-agent-bridge.md](docs/cursor-agent-bridge.md). Use
+`./momihelm cursor-bridge` and optional `./momihelm cursor-bridge-doctor`.
 
 ### Lifecycle commands
 
@@ -178,9 +193,12 @@ The running stack exposes:
 | Component | URL |
 |---|---|
 | MomiHelm UI and authenticated API | http://127.0.0.1:5173 |
+| n8n editor (loopback only) | http://127.0.0.1:5679 |
+| Gateway skeleton workflow | http://127.0.0.1:5679/workflow/tokenwiseskeleton |
 
-Backend health and webhook endpoints are intentionally not host-accessible.
-Use `docker compose exec <service> ...` for diagnostics. For advanced use,
+Print these with `./momihelm n8n-url`. Webhook and Python service health
+endpoints remain Docker-private (`http://n8n:5678/webhook/tokenwise`). Use
+`docker compose exec <service> ...` for backend diagnostics. For advanced use,
 `docker compose up -d --build` still works directly when the committed
 workflows are unchanged. If workflow JSON changes while n8n is already running,
 the guarded `n8n-init` service refuses to modify the live SQLite database and

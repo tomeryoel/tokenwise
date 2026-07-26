@@ -1,0 +1,142 @@
+{
+  "version": "1.0.0",
+  "provider": "cursor",
+  "models": [
+    {
+      "id": "auto",
+      "display_name": "Auto",
+      "family": "cursor",
+      "route_class": "auto",
+      "momihelm_tier": "balanced",
+      "relative_cost": 0.5,
+      "relative_reasoning": 0.5,
+      "supports_agent": true,
+      "supports_plan": true,
+      "aliases": ["auto", "default", "automatic"]
+    },
+    {
+      "id": "composer-2.5-fast",
+      "display_name": "Composer 2.5",
+      "family": "cursor",
+      "route_class": "economy",
+      "momihelm_tier": "cheap",
+      "relative_cost": 0.2,
+      "relative_reasoning": 0.45,
+      "supports_agent": true,
+      "supports_plan": true,
+      "aliases": [
+        "composer-2.5",
+        "composer-2.5-fast",
+        "composer 2.5",
+        "composer2.5",
+        "cursor composer 2.5"
+      ]
+    },
+    {
+      "id": "gpt-5.6-sol-medium",
+      "display_name": "GPT-5.6 Sol",
+      "family": "openai",
+      "route_class": "economy",
+      "momihelm_tier": "cheap",
+      "relative_cost": 0.25,
+      "relative_reasoning": 0.5,
+      "supports_agent": true,
+      "supports_plan": true,
+      "aliases": [
+        "gpt-5.6-sol-medium",
+        "gpt-5.6 sol",
+        "gpt 5.6 sol",
+        "gpt-5.6-sol",
+        "sol-medium"
+      ]
+    },
+    {
+      "id": "gpt-5.6-terra-medium",
+      "display_name": "GPT-5.6 Terra",
+      "family": "openai",
+      "route_class": "balanced",
+      "momihelm_tier": "balanced",
+      "relative_cost": 0.45,
+      "relative_reasoning": 0.65,
+      "supports_agent": true,
+      "supports_plan": true,
+      "aliases": [
+        "gpt-5.6-terra-medium",
+        "gpt-5.6 terra",
+        "gpt 5.6 terra",
+        "gpt-5.6-terra",
+        "terra-medium"
+      ]
+    },
+    {
+      "id": "claude-sonnet-5-thinking-high",
+      "display_name": "Sonnet 5",
+      "family": "anthropic",
+      "route_class": "balanced",
+      "momihelm_tier": "balanced",
+      "relative_cost": 0.5,
+      "relative_reasoning": 0.7,
+      "supports_agent": true,
+      "supports_plan": true,
+      "aliases": [
+        "claude-sonnet-5-thinking-high",
+        "sonnet 5",
+        "claude sonnet 5",
+        "claude-sonnet-5",
+        "sonnet-5"
+      ]
+    },
+    {
+      "id": "cursor-grok-4.5-high-fast",
+      "display_name": "Cursor Grok 4.5",
+      "family": "xai",
+      "route_class": "balanced",
+      "momihelm_tier": "balanced",
+      "relative_cost": 0.55,
+      "relative_reasoning": 0.75,
+      "supports_agent": true,
+      "supports_plan": true,
+      "aliases": [
+        "cursor-grok-4.5-high-fast",
+        "grok 4.5",
+        "cursor grok 4.5",
+        "grok-4.5",
+        "grok-4.5-high-fast"
+      ]
+    },
+    {
+      "id": "claude-fable-5-thinking-high",
+      "display_name": "Fable 5",
+      "family": "anthropic",
+      "route_class": "premium",
+      "momihelm_tier": "premium",
+      "relative_cost": 0.85,
+      "relative_reasoning": 0.9,
+      "supports_agent": true,
+      "supports_plan": true,
+      "aliases": [
+        "claude-fable-5-thinking-high",
+        "fable 5",
+        "claude fable 5",
+        "fable-5"
+      ]
+    },
+    {
+      "id": "claude-opus-5-thinking-high",
+      "display_name": "Opus 5",
+      "family": "anthropic",
+      "route_class": "premium",
+      "momihelm_tier": "premium",
+      "relative_cost": 1.0,
+      "relative_reasoning": 1.0,
+      "supports_agent": true,
+      "supports_plan": true,
+      "aliases": [
+        "claude-opus-5-thinking-high",
+        "opus 5",
+        "claude opus 5",
+        "opus-5"
+      ]
+    }
+  ]
+}

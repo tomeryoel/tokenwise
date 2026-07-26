@@ -7,7 +7,7 @@ import type {
   WorkflowType,
 } from "./types";
 
-export type PlaygroundMode = "coding" | "quick";
+export type PlaygroundMode = "coding" | "quick" | "cursor_agent";
 export type CodingPhase =
   | "draft"
   | "review"
@@ -46,6 +46,41 @@ export interface PlaygroundSession {
   evaluation: DecisionEvaluation | null;
   verificationLoading: boolean;
   verificationError: string | null;
+  cursorSelectedModel: string;
+  cursorRecommendedModel: string | null;
+  cursorRecommendationReasons: string[];
+  cursorRecommendedPath: "local_ollama" | "cursor_sdk" | null;
+  cursorPathReasons: string[];
+  cursorRecommendationBasis: "heuristic" | "configured" | "evidence" | null;
+  cursorRecommendationConfidence: number | null;
+  cursorModels: Array<{ id: string; display_name: string }>;
+  cursorBridgeStatus: string | null;
+  cursorValidationCommand: string;
+  cursorAgentResult: {
+    answer: string | null;
+    status: string;
+    model_used: string | null;
+    selected_model: string;
+    recommended_model: string | null;
+    sdk_run_id: string | null;
+    session_id: string | null;
+    attempt_id: string | null;
+    result_fingerprint: string | null;
+    claim: string;
+    error: string | null;
+    workspace_cwd: string | null;
+    workspace_kind: string | null;
+    sdk_sandbox_enabled: boolean | null;
+    changed_files: string[];
+    diff_text: string | null;
+    diff_fingerprint: string | null;
+    diff_truncated: boolean;
+    validation_command: string | null;
+    validation_status: string | null;
+    validation_exit_code: number | null;
+    validation_stdout: string | null;
+    validation_stderr: string | null;
+  } | null;
 }
 
 export const initialPlaygroundSession = (): PlaygroundSession => ({
@@ -65,4 +100,15 @@ export const initialPlaygroundSession = (): PlaygroundSession => ({
   evaluation: null,
   verificationLoading: false,
   verificationError: null,
+  cursorSelectedModel: "",
+  cursorRecommendedModel: null,
+  cursorRecommendationReasons: [],
+  cursorRecommendedPath: null,
+  cursorPathReasons: [],
+  cursorRecommendationBasis: null,
+  cursorRecommendationConfidence: null,
+  cursorModels: [],
+  cursorBridgeStatus: null,
+  cursorValidationCommand: "python3 -m pytest",
+  cursorAgentResult: null,
 });

@@ -219,3 +219,148 @@ class CodingSessionDetail(CodingSessionSummary):
 class CodingSessionListResponse(BaseModel):
     items: list[CodingSessionSummary]
     count: int
+
+
+class CursorBubbleIngest(BaseModel):
+    external_bubble_id: str = Field(min_length=1, max_length=200)
+    model: str | None = Field(default=None, max_length=200)
+    workflow: WorkflowType = "unknown"
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    latency_ms: int = Field(default=0, ge=0)
+    created_at: str | None = Field(default=None, max_length=80)
+
+    @field_validator("external_bubble_id", "model", "created_at")
+    @classmethod
+    def trim_cursor_text(cls, value: str | None) -> str | None:
+        return _trim(value) if value else None
+
+
+class CursorComposerIngest(BaseModel):
+    external_composer_id: str = Field(min_length=1, max_length=200)
+    title: str | None = Field(default=None, max_length=200)
+    objective: str = Field(min_length=1, max_length=100_000)
+    workflow: WorkflowType = "unknown"
+    workspace_path: str | None = Field(default=None, max_length=500)
+    cursor_status: str | None = Field(default=None, max_length=80)
+    bubbles: list[CursorBubbleIngest] = Field(default_factory=list)
+
+    @field_validator("external_composer_id", "title", "objective", "workspace_path", "cursor_status")
+    @classmethod
+    def trim_composer_text(cls, value: str | None) -> str | None:
+        return _trim(value) if isinstance(value, str) else value
+
+
+class CursorIngestRequest(BaseModel):
+    organization_id: str = Field(min_length=1, max_length=200)
+    user_id: str = Field(min_length=1, max_length=200)
+    dept_id: str = Field(min_length=1, max_length=200)
+    policy_mode: PolicyMode = "balanced"
+    composers: list[CursorComposerIngest] = Field(default_factory=list)
+    discovered_count: int = Field(default=0, ge=0)
+    selected_count: int = Field(default=0, ge=0)
+
+    @field_validator("organization_id", "user_id", "dept_id")
+    @classmethod
+    def trim_scope(cls, value: str) -> str:
+        return _trim(value)
+
+    @field_validator("policy_mode", mode="before")
+    @classmethod
+    def normalize_cursor_policy(cls, value: object) -> str:
+        return canonicalize_policy_mode(value)
+
+
+class CursorComposerLink(BaseModel):
+    external_composer_id: str
+    session_id: str
+
+
+class CursorIngestResponse(BaseModel):
+    discovered_count: int
+    selected_count: int
+    sessions_created: int
+    sessions_updated: int
+    attempts_created: int
+    attempts_skipped: int
+    composer_links: list[CursorComposerLink] = Field(default_factory=list)
+
+
+class CursorSdkRunPersistRequest(BaseModel):
+    organization_id: str = Field(min_length=1, max_length=200)
+    user_id: str = Field(min_length=1, max_length=200)
+    dept_id: str = Field(min_length=1, max_length=200)
+    policy_mode: PolicyMode = "balanced"
+    objective: str = Field(min_length=1, max_length=100_000)
+    coding_session_id: str | None = Field(default=None, max_length=200)
+    selected_model: str = Field(min_length=1, max_length=200)
+    recommended_model: str | None = Field(default=None, max_length=200)
+    model_used: str | None = Field(default=None, max_length=200)
+    sdk_run_id: str | None = Field(default=None, max_length=200)
+    sdk_agent_id: str | None = Field(default=None, max_length=200)
+    status: str = Field(min_length=1, max_length=40)
+    result_text: str | None = Field(default=None, max_length=500_000)
+    error_detail: str | None = Field(default=None, max_length=1000)
+    duration_ms: int = Field(default=0, ge=0)
+    workflow: WorkflowType = "agent"
+    workspace_kind: str | None = Field(default=None, max_length=80)
+    changed_files: list[str] = Field(default_factory=list)
+    diff_fingerprint: str | None = Field(default=None, max_length=128)
+    validation_command: str | None = Field(default=None, max_length=200)
+    validation_status: str | None = Field(default=None, max_length=80)
+
+    @field_validator(
+        "organization_id",
+        "user_id",
+        "dept_id",
+        "objective",
+        "coding_session_id",
+        "selected_model",
+        "recommended_model",
+        "model_used",
+        "sdk_run_id",
+        "sdk_agent_id",
+        "status",
+        "error_detail",
+        "workspace_kind",
+        "diff_fingerprint",
+        "validation_command",
+        "validation_status",
+    )
+    @classmethod
+    def trim_sdk_text(cls, value: str | None) -> str | None:
+        return _trim(value) if isinstance(value, str) else value
+
+    @field_validator("changed_files")
+    @classmethod
+    def limit_changed_files(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for item in value[:200]:
+            text = _trim(str(item))
+            if text:
+                cleaned.append(text[:500])
+        return cleaned
+
+    @field_validator("policy_mode", mode="before")
+    @classmethod
+    def normalize_sdk_policy(cls, value: object) -> str:
+        return canonicalize_policy_mode(value)
+
+
+class CursorSdkRunPersistResponse(BaseModel):
+    session_id: str
+    attempt_id: str
+    run_key: str
+    result_fingerprint: str | None = None
+    provider: str = "cursor-sdk"
+    selected_model: str
+    recommended_model: str | None = None
+    model_used: str | None = None
+    status: str
+    sdk_run_id: str | None = None
+    workspace_kind: str | None = None
+    changed_files: list[str] = Field(default_factory=list)
+    diff_fingerprint: str | None = None
+    validation_command: str | None = None
+    validation_status: str | None = None
+

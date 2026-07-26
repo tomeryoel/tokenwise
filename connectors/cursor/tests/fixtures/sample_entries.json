@@ -1,0 +1,25 @@
+{
+  "composerData:composer-abc": {
+    "composerId": "composer-abc",
+    "name": "Fix duplicate list bug",
+    "unifiedMode": "agent",
+    "workspaceFolder": "/Users/demo/tokenwise",
+    "status": "completed"
+  },
+  "bubbleId:composer-abc:user-1": {
+    "type": 1,
+    "text": "Fix a Python function that removes duplicate numbers from a list but keeps order."
+  },
+  "bubbleId:composer-abc:assistant-1": {
+    "type": 2,
+    "text": "Here is a stable-order dedupe helper.",
+    "modelType": "claude-sonnet-4",
+    "tokenCount": {
+      "inputTokens": 1200,
+      "outputTokens": 450
+    },
+    "timingInfo": {
+      "totalMs": 4200
+    }
+  }
+}

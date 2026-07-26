@@ -52,6 +52,13 @@ SESSION_TTL_SECONDS = int(
     float(os.environ.get("MOMIHELM_SESSION_TTL_HOURS", "12")) * 3600
 )
 COOKIE_SECURE = os.environ.get("MOMIHELM_COOKIE_SECURE", "false").lower() == "true"
+CONNECTOR_TOKEN = os.environ.get("MOMIHELM_CONNECTOR_TOKEN", "").strip()
+CONNECTOR_USER_EMAIL = os.environ.get("MOMIHELM_CONNECTOR_USER_EMAIL", "").strip()
+CURSOR_BRIDGE_URL = os.environ.get(
+    "MOMIHELM_CURSOR_BRIDGE_URL",
+    "http://host.docker.internal:8787",
+).rstrip("/")
+CURSOR_BRIDGE_TOKEN = os.environ.get("MOMIHELM_CURSOR_BRIDGE_TOKEN", "").strip()
 ALLOWED_ORIGINS = {
     origin.strip()
     for origin in os.environ.get(
@@ -194,6 +201,32 @@ class VerificationCreateRequest(BaseModel):
         return " ".join(value.split()) if value else None
 
 
+class CursorBubbleIngestRequest(BaseModel):
+    external_bubble_id: str = Field(min_length=1, max_length=200)
+    model: str | None = Field(default=None, max_length=200)
+    workflow: Literal["direct", "plan", "agent", "debug", "review", "unknown"] = "unknown"
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    latency_ms: int = Field(default=0, ge=0)
+    created_at: str | None = Field(default=None, max_length=80)
+
+
+class CursorComposerIngestRequest(BaseModel):
+    external_composer_id: str = Field(min_length=1, max_length=200)
+    title: str | None = Field(default=None, max_length=200)
+    objective: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    workflow: Literal["direct", "plan", "agent", "debug", "review", "unknown"] = "unknown"
+    workspace_path: str | None = Field(default=None, max_length=500)
+    cursor_status: str | None = Field(default=None, max_length=80)
+    bubbles: list[CursorBubbleIngestRequest] = Field(default_factory=list)
+
+
+class CursorIngestGatewayRequest(BaseModel):
+    composers: list[CursorComposerIngestRequest] = Field(default_factory=list)
+    discovered_count: int = Field(default=0, ge=0)
+    selected_count: int = Field(default=0, ge=0)
+
+
 class CodingContextInput(BaseModel):
     primary_language: str | None = Field(default=None, max_length=80)
     repository_size: Literal["small", "medium", "large", "unknown"] = "unknown"
@@ -315,7 +348,20 @@ def require_user(request: Request) -> Principal:
     return principal
 
 
+def require_connector_user(request: Request) -> Principal:
+    token = request.headers.get("X-MomiHelm-Connector-Token", "").strip()
+    if not CONNECTOR_TOKEN or not CONNECTOR_USER_EMAIL:
+        raise HTTPException(status_code=503, detail="connector_not_configured")
+    if not token or not secrets.compare_digest(token, CONNECTOR_TOKEN):
+        raise HTTPException(status_code=401, detail="connector_authentication_required")
+    principal = get_user_by_email(CONNECTOR_USER_EMAIL)
+    if principal is None:
+        raise HTTPException(status_code=503, detail="connector_user_not_configured")
+    return principal
+
+
 CurrentUser = Annotated[Principal, Depends(require_user)]
+ConnectorUser = Annotated[Principal, Depends(require_connector_user)]
 
 
 def require_manager(user: CurrentUser) -> Principal:
@@ -589,6 +635,40 @@ async def _optimizer_request(
         params=params,
         unavailable_detail="intelligence_service_unavailable",
     )
+
+
+async def _bridge_request(
+    method: str,
+    path: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    timeout: float = 300.0,
+) -> dict[str, Any]:
+    if not CURSOR_BRIDGE_TOKEN:
+        raise HTTPException(status_code=503, detail="cursor_bridge_not_configured")
+    url = f"{CURSOR_BRIDGE_URL}{path}"
+    headers = {"X-MomiHelm-Bridge-Token": CURSOR_BRIDGE_TOKEN}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.request(
+                method,
+                url,
+                json=payload,
+                headers=headers,
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="cursor_bridge_unavailable",
+        ) from exc
+    if response.status_code >= 400:
+        detail: Any
+        try:
+            detail = response.json().get("detail", response.text)
+        except Exception:
+            detail = response.text
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    return response.json()
 
 
 def _response_payload(response: Response) -> object | None:
@@ -949,3 +1029,218 @@ async def get_coding_session_evaluation(session_id: str, user: CurrentUser):
         f"/coding/sessions/{session_id}/evaluation",
         params=params,
     )
+
+
+@app.post("/connectors/cursor/ingest", status_code=201)
+async def ingest_cursor_composers(
+    payload: CursorIngestGatewayRequest,
+    user: ConnectorUser,
+):
+    trusted_payload = payload.model_dump()
+    trusted_payload.update(
+        {
+            "organization_id": user.organization_id,
+            "user_id": user.id,
+            "dept_id": user.department_id,
+            "policy_mode": user.policy_mode,
+        }
+    )
+    return await _optimizer_request(
+        "POST",
+        "/connectors/cursor/ingest",
+        payload=trusted_payload,
+    )
+
+
+class CursorRouteGatewayRequest(BaseModel):
+    objective: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    task_type: str = Field(default="unknown", max_length=80)
+    complexity_level: Literal["low", "medium", "high"] = "medium"
+    workflow: Literal["direct", "plan", "agent", "debug", "review", "unknown"] = "unknown"
+    requested_model: str | None = Field(default=None, max_length=200)
+    prefer_auto: bool = False
+
+
+@app.get("/cursor/models")
+async def list_cursor_models(_user: CurrentUser):
+    return await _optimizer_request("GET", "/cursor/models")
+
+
+@app.post("/cursor/route/recommend")
+async def recommend_cursor_route(payload: CursorRouteGatewayRequest, user: CurrentUser):
+    trusted_payload = payload.model_dump()
+    trusted_payload["policy_mode"] = user.policy_mode
+    return await _optimizer_request(
+        "POST",
+        "/cursor/route/recommend",
+        payload=trusted_payload,
+    )
+
+
+class CursorAgentRunRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    selected_model: str = Field(min_length=1, max_length=200)
+    recommended_model: str | None = Field(default=None, max_length=200)
+    coding_session_id: str | None = Field(default=None, max_length=200)
+    workflow: Literal["direct", "plan", "agent", "debug", "review", "unknown"] = "agent"
+    cwd: str | None = Field(default=None, max_length=1000)
+    validation_command: str | None = Field(default=None, max_length=200)
+    include_diff_in_response: bool = True
+
+    @field_validator(
+        "prompt",
+        "selected_model",
+        "recommended_model",
+        "coding_session_id",
+        "cwd",
+        "validation_command",
+    )
+    @classmethod
+    def trim_agent_fields(cls, value: str | None) -> str | None:
+        return " ".join(value.split()) if isinstance(value, str) else value
+
+
+@app.get("/cursor-agent/health")
+async def cursor_agent_health(_user: CurrentUser):
+    if not CURSOR_BRIDGE_TOKEN:
+        return {
+            "status": "not_configured",
+            "bridge_configured": False,
+            "experimental": True,
+            "detail": "Set MOMIHELM_CURSOR_BRIDGE_TOKEN and start ./momihelm cursor-bridge",
+        }
+    try:
+        payload = await _bridge_request("GET", "/health", timeout=5.0)
+        return {
+            "status": "ok",
+            "bridge_configured": True,
+            "experimental": True,
+            "bridge": payload,
+        }
+    except HTTPException as exc:
+        return {
+            "status": "unavailable",
+            "bridge_configured": True,
+            "experimental": True,
+            "detail": exc.detail,
+        }
+
+
+@app.get("/cursor-agent/models")
+async def cursor_agent_models(_user: CurrentUser):
+    """Prefer live SDK model list from the bridge; fall back to local catalog."""
+    if CURSOR_BRIDGE_TOKEN:
+        try:
+            payload = await _bridge_request("GET", "/models", timeout=30.0)
+            return {
+                "models": payload.get("models", []),
+                "count": payload.get("count", 0),
+                "source": "cursor_sdk",
+                "experimental": True,
+            }
+        except HTTPException:
+            pass
+    catalog = await _optimizer_request("GET", "/cursor/models")
+    body = _response_payload(catalog)
+    models = body.get("models", []) if isinstance(body, dict) else []
+    return {
+        "models": models,
+        "count": len(models),
+        "source": "momihelm_catalog_fallback",
+        "experimental": True,
+        "detail": "Bridge unavailable; showing MomiHelm advisory catalog. SDK acceptance is not guaranteed.",
+    }
+
+
+@app.post("/cursor-agent/run")
+async def cursor_agent_run(payload: CursorAgentRunRequest, user: CurrentUser):
+    bridge_result = await _bridge_request(
+        "POST",
+        "/run",
+        payload={
+            "prompt": payload.prompt,
+            "model": payload.selected_model,
+            "recommended_model": payload.recommended_model,
+            "cwd": payload.cwd,
+            "validation_command": payload.validation_command,
+            "include_diff_in_response": payload.include_diff_in_response,
+        },
+        timeout=300.0,
+    )
+
+    changed_files = bridge_result.get("changed_files") or []
+    if not isinstance(changed_files, list):
+        changed_files = []
+    changed_files = [str(item) for item in changed_files[:200]]
+
+    # Persistence stores safe metadata only. Raw diffs are never written by default.
+    persist_payload = {
+        "organization_id": user.organization_id,
+        "user_id": user.id,
+        "dept_id": user.department_id,
+        "policy_mode": user.policy_mode,
+        "objective": payload.prompt,
+        "coding_session_id": payload.coding_session_id,
+        "selected_model": payload.selected_model,
+        "recommended_model": payload.recommended_model,
+        "model_used": bridge_result.get("model_used"),
+        "sdk_run_id": bridge_result.get("run_id"),
+        "sdk_agent_id": bridge_result.get("agent_id"),
+        "status": bridge_result.get("status", "error"),
+        "result_text": bridge_result.get("result_text"),
+        "error_detail": bridge_result.get("error"),
+        "duration_ms": bridge_result.get("duration_ms") or 0,
+        "workflow": payload.workflow,
+        "workspace_kind": bridge_result.get("workspace_kind"),
+        "changed_files": changed_files,
+        "diff_fingerprint": bridge_result.get("diff_fingerprint"),
+        "validation_command": bridge_result.get("validation_command"),
+        "validation_status": bridge_result.get("validation_status"),
+    }
+    persist_response = await _optimizer_request(
+        "POST",
+        "/connectors/cursor-sdk/runs",
+        payload=persist_payload,
+    )
+    persisted = _response_payload(persist_response)
+    if not isinstance(persisted, dict):
+        persisted = {}
+
+    # Return result + per-run diff to the authenticated caller only.
+    return {
+        "experimental": True,
+        "claim": bridge_result.get("claim")
+        or (
+            "MomiHelm can run Cursor coding-agent tasks through the official "
+            "Cursor SDK against a local workspace and display status, changed "
+            "files, diff, and validation inside the MomiHelm web application."
+        ),
+        "status": bridge_result.get("status"),
+        "answer": bridge_result.get("result_text"),
+        "error": bridge_result.get("error"),
+        "selected_model": payload.selected_model,
+        "recommended_model": payload.recommended_model,
+        "model_used": bridge_result.get("model_used"),
+        "sdk_run_id": bridge_result.get("run_id"),
+        "sdk_agent_id": bridge_result.get("agent_id"),
+        "duration_ms": bridge_result.get("duration_ms"),
+        "session_id": persisted.get("session_id"),
+        "attempt_id": persisted.get("attempt_id"),
+        "result_fingerprint": persisted.get("result_fingerprint"),
+        "provider": "cursor-sdk",
+        "workspace_cwd": bridge_result.get("workspace_cwd"),
+        "workspace_kind": bridge_result.get("workspace_kind"),
+        "sdk_sandbox_enabled": bridge_result.get("sdk_sandbox_enabled"),
+        "changed_files": changed_files,
+        "diff_text": bridge_result.get("diff_text")
+        if payload.include_diff_in_response
+        else None,
+        "diff_fingerprint": bridge_result.get("diff_fingerprint"),
+        "diff_truncated": bool(bridge_result.get("diff_truncated")),
+        "validation_command": bridge_result.get("validation_command"),
+        "validation_status": bridge_result.get("validation_status"),
+        "validation_exit_code": bridge_result.get("validation_exit_code"),
+        "validation_stdout": bridge_result.get("validation_stdout"),
+        "validation_stderr": bridge_result.get("validation_stderr"),
+        "persist_raw_diff": False,
+    }

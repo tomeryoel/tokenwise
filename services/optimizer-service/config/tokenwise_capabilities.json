@@ -28,13 +28,17 @@
     "SQLite analytics for the Dashboard",
     "Offline Ragas evaluation (not in the real-time path)",
     "PyTorch Image Analyser (ResNet18 coarse classification + visual complexity; wired in n8n)",
-    "Langfuse tracing (optional, privacy-safe, idempotent)"
+    "Langfuse tracing (optional, privacy-safe, idempotent)",
+    "Cursor local-database connector (read-only state.vscdb ingest)",
+    "Cursor model catalog and route recommendation across Composer 2.5, GPT-5.6 Sol/Terra, Sonnet 5, Grok 4.5, Fable 5, Opus 5, and Auto",
+    "Live Cursor advisory routing via MCP tools, project hooks, and offline recommend CLI",
+    "Experimental Cursor-through-MomiHelm path via local official cursor-sdk bridge"
   ],
   "partial_or_planned": [
     "Policy Intelligence runtime (Structured Policy Engine + inheritance)",
     "Policy Evidence Retrieval (POST /policy/query is currently a placeholder)",
     "Real prompt-compression execution (recommendation only today)",
-    "Cursor Connector",
+    "Production hardening of Cursor SDK bridge and full Cursor IDE parity",
     "Cross-tool connectors",
     "Automated coding verification from tests, builds, lint, and type checks through connectors",
     "Controlled multi-model benchmark expansion and evidence-based product claim gate",
@@ -48,7 +52,7 @@
     "Real-time provider reputation ranking",
     "Automatic company-policy ingestion",
     "Automatic policy-document enforcement / current Policy RAG",
-    "Current Cursor telemetry",
+    "Executing Cursor models directly outside Cursor IDE",
     "Current employee use-case monitoring",
     "Current cross-tool coding analytics"
   ]
