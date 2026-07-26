@@ -323,6 +323,15 @@ cursor_sync() {
     PYTHONPATH="$ROOT_DIR" exec python3 -m connectors.cursor sync "$@"
 }
 
+cursor_recommend() {
+    command -v python3 >/dev/null 2>&1 ||
+        fail "python3 is required for Cursor model recommendations."
+    if [ "$#" -eq 0 ]; then
+        fail "Usage: ./momihelm cursor-recommend \"your coding objective\""
+    fi
+    PYTHONPATH="$ROOT_DIR" exec python3 -m connectors.cursor recommend "$@"
+}
+
 doctor() {
     load_env
     require_docker
@@ -383,12 +392,13 @@ Public web (HTTPS on a server):
   ./momihelm web-smoke     Run the release smoke test against the web stack
   ./momihelm web-stop      Stop the web stack while preserving data
 
-Cursor connector:
-  ./momihelm cursor-sync   Read local Cursor state.vscdb and ingest into MomiHelm
-                           Pass --dry-run to inspect without posting.
+Cursor connector + live routing:
+  ./momihelm cursor-sync        Read local Cursor state.vscdb and ingest into MomiHelm
+                                Pass --dry-run to inspect without posting.
+  ./momihelm cursor-recommend   Recommend a Cursor model for an objective (offline)
 
 See docs/web-deployment.md for server setup.
-See docs/cursor-connector.md for Cursor integration.
+See docs/cursor-connector.md for Cursor integration and live MCP/hooks.
 EOF
 }
 
@@ -412,6 +422,10 @@ case "$command" in
     cursor-sync)
         shift
         cursor_sync "$@"
+        ;;
+    cursor-recommend)
+        shift
+        cursor_recommend "$@"
         ;;
     help|-h|--help) show_help ;;
     *) fail "Unknown command '$command'. Run ./momihelm help." ;;

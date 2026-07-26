@@ -1,0 +1,14 @@
+---
+description: Use MomiHelm to recommend Cursor models for coding tasks
+alwaysApply: true
+---
+
+# MomiHelm live model routing
+
+When the user asks you to implement, debug, design, refactor, or review code:
+
+1. Prefer calling the MCP tool `momihelm_recommend_model` with the objective before choosing a heavy model strategy.
+2. Treat the result as advisory. Tell the user the recommended Cursor model (Composer 2.5, GPT-5.6 Sol/Terra, Sonnet 5, Grok 4.5, Fable 5, Opus 5, or Auto) and why.
+3. If the currently selected model looks overpowered for a tiny task, say so and suggest a cheaper model.
+4. Do not claim MomiHelm automatically switched the Cursor model. Cursor still uses the model the user selected.
+5. After substantial work, you may call `momihelm_compare_models` if both executed and recommended models are known.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -11,6 +12,7 @@ from connectors.cursor.mapper import build_ingest_batch
 from connectors.cursor.parser import discover_composers
 from connectors.cursor.paths import discover_state_databases
 from connectors.cursor.reader import load_cursor_snapshot
+from connectors.cursor.router import recommend_route
 
 
 def _env(name: str, default: str = "") -> str:
@@ -73,12 +75,47 @@ def run_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_recommend(args: argparse.Namespace) -> int:
+    recommendation = recommend_route(
+        objective=args.objective,
+        workflow=args.workflow,
+        policy_mode=args.policy_mode,
+        prefer_auto=args.prefer_auto,
+        requested_model=args.requested_model or None,
+    )
+    if args.json:
+        print(json.dumps(recommendation.to_dict(), indent=2))
+    else:
+        print(recommendation.advisory_text())
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="connectors.cursor",
         description="Sync Cursor local composer history into MomiHelm.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    recommend = subparsers.add_parser(
+        "recommend",
+        help="Recommend a Cursor model for an objective (offline, no Docker required)",
+    )
+    recommend.add_argument("objective", help="Coding objective / prompt text")
+    recommend.add_argument(
+        "--workflow",
+        default="agent",
+        choices=["direct", "plan", "agent", "debug", "review", "unknown"],
+    )
+    recommend.add_argument(
+        "--policy-mode",
+        default="balanced",
+        choices=["conservative", "balanced", "aggressive"],
+    )
+    recommend.add_argument("--requested-model", default="")
+    recommend.add_argument("--prefer-auto", action="store_true")
+    recommend.add_argument("--json", action="store_true")
+    recommend.set_defaults(func=run_recommend)
 
     sync = subparsers.add_parser("sync", help="Read Cursor state.vscdb and ingest into MomiHelm")
     sync.add_argument(

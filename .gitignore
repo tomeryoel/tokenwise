@@ -3,8 +3,12 @@
 .env.*
 !.env.example
 !.env.langfuse.example
+!.env.web.example
 *.pem
 *.key
+
+# Local MomiHelm connector/runtime artifacts
+.momihelm/
 
 # Python
 __pycache__/

@@ -30,13 +30,14 @@
     "PyTorch Image Analyser (ResNet18 coarse classification + visual complexity; wired in n8n)",
     "Langfuse tracing (optional, privacy-safe, idempotent)",
     "Cursor local-database connector (read-only state.vscdb ingest)",
-    "Cursor model catalog and route recommendation across Composer 2.5, GPT-5.6 Sol/Terra, Sonnet 5, Grok 4.5, Fable 5, Opus 5, and Auto"
+    "Cursor model catalog and route recommendation across Composer 2.5, GPT-5.6 Sol/Terra, Sonnet 5, Grok 4.5, Fable 5, Opus 5, and Auto",
+    "Live Cursor advisory routing via MCP tools, project hooks, and offline recommend CLI"
   ],
   "partial_or_planned": [
     "Policy Intelligence runtime (Structured Policy Engine + inheritance)",
     "Policy Evidence Retrieval (POST /policy/query is currently a placeholder)",
     "Real prompt-compression execution (recommendation only today)",
-    "Live Cursor hook/extension routing (recommendations are advisory today)",
+    "Automatic Cursor model switching (recommendations are advisory today)",
     "Cross-tool connectors",
     "Automated coding verification from tests, builds, lint, and type checks through connectors",
     "Controlled multi-model benchmark expansion and evidence-based product claim gate",

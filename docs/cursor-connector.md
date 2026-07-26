@@ -4,25 +4,28 @@ MomiHelm can ingest **Cursor composer history** from the local Cursor
 `state.vscdb` database and turn it into coding sessions, attempts, and
 connector-sourced context for the Dashboard.
 
-This is the first slice of the Cursor integration. It does **not** yet:
+This is the Cursor integration for MomiHelm. It includes:
 
-- intercept live Cursor requests in real time
-- optimize Cursor model routing automatically
-- verify code changes through CI
+1. **Historical ingest** from local Cursor `state.vscdb`
+2. **Model catalog + offline/online routing** across Cursor LLMs
+3. **Live advisory routing** inside Cursor via MCP tools + hooks
+
+It does **not** yet:
+
+- forcibly switch the selected Cursor model for you
+- verify code changes through CI automatically
+- observe every Cursor keystroke in real time beyond prompt-submit hooks
 
 ## Architecture
 
 ```text
-Cursor IDE (local state.vscdb on your Mac)
+Cursor IDE
+  |-- hooks (sessionStart / beforeSubmitPrompt)
+  |-- MCP tools (recommend / list / compare)
+  |-- local state.vscdb sync CLI
         |
         v
-connectors/cursor  (host-side Python, read-only)
-        |
-        v
-MomiHelm gateway  POST /api/connectors/cursor/ingest
-        |
-        v
-optimizer-service  coding sessions + attempts (SQLite)
+MomiHelm gateway + optimizer
         |
         v
 Dashboard / Model Fit / Cost-to-Success
@@ -115,8 +118,47 @@ During `./momihelm cursor-sync`, each imported Cursor attempt stores:
 - MomiHelm recommended tier/model for the same objective
 - enough metadata for Model Fit and Cost-to-Success on the Dashboard
 
-Routing is **advisory** in this slice. MomiHelm does not switch the model
-inside Cursor automatically yet.
+Routing during sync is **advisory**. MomiHelm does not switch the model
+inside Cursor automatically.
+
+## Live routing inside Cursor (this slice)
+
+### MCP server
+
+Project config: `.cursor/mcp.json`
+
+Tools:
+
+- `momihelm_list_models`
+- `momihelm_recommend_model`
+- `momihelm_compare_models`
+
+After opening this repo in Cursor, enable the **momihelm-cursor** MCP server
+if Cursor asks. Then ask the agent:
+
+> Use momihelm_recommend_model for this task: fix a flaky auth unit test
+
+### Hooks
+
+Project hooks (`.cursor/hooks.json`):
+
+- `sessionStart` injects MomiHelm routing guidance into the conversation context
+- `beforeSubmitPrompt` computes a recommendation and writes it to
+  `.momihelm/last-route.json` (fail-open; never blocks your prompt)
+
+### Offline CLI
+
+No Docker required:
+
+```bash
+./momihelm cursor-recommend "Fix a flaky unit test in auth middleware."
+./momihelm cursor-recommend "Design a multi-region payment failover" --json
+```
+
+### Cursor rule
+
+`.cursor/rules/momihelm-model-routing.mdc` tells the agent to request a
+recommendation before heavy coding work.
 
 ## Privacy
 
@@ -135,6 +177,6 @@ See [docs/web-deployment.md](web-deployment.md).
 
 ## Next slices
 
-1. Cursor hook or extension for live attempt ingest
-2. MomiHelm MCP server inside Cursor for route recommendations
-3. Automated verification events from tests/build output
+1. Automated verification events from tests/build output
+2. Stronger auto-switch UX if Cursor exposes a supported model-control surface
+3. Team/repository learning over verified Cursor outcomes
