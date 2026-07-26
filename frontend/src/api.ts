@@ -365,6 +365,10 @@ export interface CursorRouteRecommendation {
     momihelm_tier: string;
     reason: string;
   }>;
+  recommended_path?: "local_ollama" | "cursor_sdk";
+  path_reasons?: string[];
+  recommendation_basis?: "heuristic" | "configured" | "evidence";
+  confidence?: number;
 }
 
 export interface CursorAgentRunResult {

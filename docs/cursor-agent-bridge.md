@@ -82,7 +82,13 @@ Reset the disposable sandbox when needed:
   and are **not persisted by default**. Persistence stores relative changed
   paths + a diff fingerprint.
 - Validation commands are allowlisted only:
-  `npm test`, `npm run test`, `npm run lint`, `pytest`, `python -m pytest`.
+  `npm test`, `npm run test`, `npm run lint`, `pytest`, `python -m pytest`,
+  `python3 -m pytest`.
+- Generated Python cache paths (`__pycache__/`, `*.pyc`, `.pytest_cache/`) are
+  gitignored in the sandbox fixture and excluded from changed-files/diff capture.
+- Path recommendation is heuristic: simple Q&A may advise **local Ollama** via
+  Quick Question / Coding Session; repo-edit/validation tasks advise **Cursor SDK**.
+  Local Ollama does **not** edit the workspace in this slice.
 - Official Cursor SDK only. No `state.vscdb` writes. No Cursor UI automation.
 - `LocalAgentOptions.cwd` scopes the workspace. `SandboxOptions(enabled=...)`
   is passed when available. The SDK does **not** expose a rich command

@@ -88,6 +88,10 @@ export default function Playground({
     cursorSelectedModel,
     cursorRecommendedModel,
     cursorRecommendationReasons,
+    cursorRecommendedPath,
+    cursorPathReasons,
+    cursorRecommendationBasis,
+    cursorRecommendationConfidence,
     cursorModels,
     cursorBridgeStatus,
     cursorValidationCommand,
@@ -201,6 +205,13 @@ export default function Playground({
         ...current,
         cursorRecommendedModel: recommendation.recommended_model_id,
         cursorRecommendationReasons: recommendation.reasons,
+        cursorRecommendedPath: recommendation.recommended_path ?? null,
+        cursorPathReasons: recommendation.path_reasons ?? [],
+        cursorRecommendationBasis: recommendation.recommendation_basis ?? null,
+        cursorRecommendationConfidence:
+          typeof recommendation.confidence === "number"
+            ? recommendation.confidence
+            : null,
         cursorSelectedModel:
           current.cursorSelectedModel || recommendation.recommended_model_id,
       }));
@@ -784,6 +795,7 @@ export default function Playground({
                   }
                 >
                   <option value="">No validation</option>
+                  <option value="python3 -m pytest">python3 -m pytest</option>
                   <option value="python -m pytest">python -m pytest</option>
                   <option value="pytest">pytest</option>
                   <option value="npm test">npm test</option>
@@ -799,6 +811,32 @@ export default function Playground({
                   <li key={reason}>{reason}</li>
                 ))}
               </ul>
+            )}
+
+            {cursorRecommendedPath && (
+              <div className="continuing-session-banner">
+                <span>Cost-efficient path (heuristic)</span>
+                <strong>
+                  {cursorRecommendedPath === "local_ollama"
+                    ? "Prefer local Ollama via Quick Question / Coding Session"
+                    : "Prefer Cursor SDK Coding Run"}
+                </strong>
+                <small>
+                  Basis: {cursorRecommendationBasis ?? "heuristic"}
+                  {cursorRecommendationConfidence != null
+                    ? ` · confidence ${Math.round(cursorRecommendationConfidence * 100)}%`
+                    : ""}
+                  . Local Ollama answers text tasks; it does not edit the sandbox
+                  unless you use Cursor SDK.
+                </small>
+                {cursorPathReasons.length > 0 && (
+                  <ul className="muted-list">
+                    {cursorPathReasons.slice(0, 3).map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
 
             <div className="composer-submit">

@@ -50,3 +50,31 @@ def test_prefer_auto_returns_auto_with_resolution_reason():
     assert result.recommended_model_id == "auto"
     assert result.resolved_from_auto is True
     assert any("Auto resolves" in reason for reason in result.reasons)
+
+
+def test_simple_explanation_prefers_local_ollama_path():
+    result = recommend_cursor_route(
+        CursorRouteRequest(
+            objective="Explain what a REST API is in simple terms.",
+            task_type="documentation",
+            complexity_level="low",
+            policy_mode="balanced",
+            workflow="direct",
+        )
+    )
+    assert result.recommended_path == "local_ollama"
+    assert result.recommendation_basis == "heuristic"
+    assert result.path_reasons
+
+
+def test_repo_edit_objective_prefers_cursor_sdk_path():
+    result = recommend_cursor_route(
+        CursorRouteRequest(
+            objective="In hello.py only, change greet() and update tests in the workspace.",
+            task_type="feature_implementation",
+            complexity_level="medium",
+            policy_mode="balanced",
+            workflow="agent",
+        )
+    )
+    assert result.recommended_path == "cursor_sdk"

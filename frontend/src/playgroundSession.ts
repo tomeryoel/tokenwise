@@ -49,6 +49,10 @@ export interface PlaygroundSession {
   cursorSelectedModel: string;
   cursorRecommendedModel: string | null;
   cursorRecommendationReasons: string[];
+  cursorRecommendedPath: "local_ollama" | "cursor_sdk" | null;
+  cursorPathReasons: string[];
+  cursorRecommendationBasis: "heuristic" | "configured" | "evidence" | null;
+  cursorRecommendationConfidence: number | null;
   cursorModels: Array<{ id: string; display_name: string }>;
   cursorBridgeStatus: string | null;
   cursorValidationCommand: string;
@@ -99,8 +103,12 @@ export const initialPlaygroundSession = (): PlaygroundSession => ({
   cursorSelectedModel: "",
   cursorRecommendedModel: null,
   cursorRecommendationReasons: [],
+  cursorRecommendedPath: null,
+  cursorPathReasons: [],
+  cursorRecommendationBasis: null,
+  cursorRecommendationConfidence: null,
   cursorModels: [],
   cursorBridgeStatus: null,
-  cursorValidationCommand: "python -m pytest",
+  cursorValidationCommand: "python3 -m pytest",
   cursorAgentResult: null,
 });

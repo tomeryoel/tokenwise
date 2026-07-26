@@ -42,6 +42,13 @@ class CursorRouteRecommendation(BaseModel):
     fallback_display_name: str | None = None
     reasons: list[str] = Field(default_factory=list)
     alternatives: list[CursorRouteAlternative] = Field(default_factory=list)
+    # Cost-efficient path advice. Heuristic only — not historical evidence.
+    # local_ollama = use Quick Question / Coding Session via existing Ollama path.
+    # cursor_sdk = use Cursor Agent Coding Run for workspace edits/validation.
+    recommended_path: Literal["local_ollama", "cursor_sdk"] = "cursor_sdk"
+    path_reasons: list[str] = Field(default_factory=list)
+    recommendation_basis: Literal["heuristic", "configured", "evidence"] = "heuristic"
+    confidence: float = Field(default=0.55, ge=0.0, le=1.0)
 
 
 def _score_model(
@@ -106,7 +113,110 @@ def _eligible_models(workflow: WorkflowType) -> list[CursorModel]:
     return models
 
 
+def _recommend_execution_path(
+    req: CursorRouteRequest,
+) -> tuple[Literal["local_ollama", "cursor_sdk"], list[str], float]:
+    """Heuristic path advice: local Ollama playground vs Cursor SDK coding run.
+
+    Does not claim Ollama can edit repositories. Local path means existing
+    Quick Question / Coding Session n8n→optimizer→Ollama flow.
+    """
+    text = req.objective.lower()
+    path_reasons: list[str] = []
+
+    edit_signals = (
+        "edit ",
+        "change ",
+        "modify ",
+        "refactor",
+        "implement",
+        "fix ",
+        "patch ",
+        "diff",
+        "apply to",
+        "update the file",
+        "update file",
+        "in hello.py",
+        "in the repo",
+        "repository",
+        "workspace",
+        "run tests",
+        "pytest",
+        "unit test",
+        "multi-file",
+        "across files",
+    )
+    simple_signals = (
+        "explain",
+        "what is",
+        "what's",
+        "summarize",
+        "summary",
+        "how does",
+        "why does",
+        "define ",
+        "translate",
+        "rewrite this sentence",
+        "brainstorm",
+        "outline a plan",
+        "give an example",
+    )
+
+    edit_hits = sum(1 for signal in edit_signals if signal in text)
+    simple_hits = sum(1 for signal in simple_signals if signal in text)
+    needs_agent_workflow = req.workflow in {"agent", "debug"} and edit_hits > 0
+    high_risk = req.complexity_level == "high" or req.task_type in {
+        "architecture_design",
+        "bug_fix",
+        "feature_implementation",
+        "refactor",
+    }
+
+    if needs_agent_workflow or edit_hits >= 2 or (edit_hits >= 1 and high_risk):
+        path_reasons.append(
+            "repository-edit / validation signals favor Cursor SDK coding run"
+        )
+        if high_risk:
+            path_reasons.append("task type/complexity suggests stronger coding agent")
+        return "cursor_sdk", path_reasons, 0.7
+
+    if (
+        req.complexity_level == "low"
+        and simple_hits >= 1
+        and edit_hits == 0
+        and req.workflow in {"direct", "plan", "unknown", "review"}
+    ):
+        path_reasons.append(
+            "simple Q&A/planning without repo-edit signals → local Ollama playground"
+        )
+        path_reasons.append(
+            "use Quick Question or Coding Session; Cursor SDK not required"
+        )
+        return "local_ollama", path_reasons, 0.65
+
+    if edit_hits == 0 and simple_hits >= 1 and req.complexity_level != "high":
+        path_reasons.append(
+            "explanation/summary-style objective without edit signals → prefer local Ollama"
+        )
+        return "local_ollama", path_reasons, 0.6
+
+    if edit_hits >= 1:
+        path_reasons.append("edit-oriented wording → Cursor SDK coding run")
+        return "cursor_sdk", path_reasons, 0.6
+
+    # Default for Cursor Agent mode callers: keep SDK, but note uncertainty.
+    path_reasons.append(
+        "ambiguous objective; defaulting to Cursor SDK only if workspace edits are needed"
+    )
+    path_reasons.append(
+        "for simple Q&A, switch to Quick Question (local Ollama) to avoid paid Cursor spend"
+    )
+    return "cursor_sdk", path_reasons, 0.45
+
+
 def recommend_cursor_route(req: CursorRouteRequest) -> CursorRouteRecommendation:
+    recommended_path, path_reasons, path_confidence = _recommend_execution_path(req)
+
     requested = normalize_cursor_model_id(req.requested_model)
     if requested and requested != "auto" and not req.prefer_auto:
         model = get_cursor_model(requested)
@@ -118,6 +228,10 @@ def recommend_cursor_route(req: CursorRouteRequest) -> CursorRouteRecommendation
                 route_class=model.route_class,
                 reasons=[f"honoring explicit Cursor model selection: {model.display_name}"],
                 alternatives=_alternatives(model.id, req),
+                recommended_path=recommended_path,
+                path_reasons=path_reasons,
+                recommendation_basis="heuristic",
+                confidence=path_confidence,
             )
 
     ranked: list[tuple[float, CursorModel, list[str]]] = []
@@ -140,6 +254,10 @@ def recommend_cursor_route(req: CursorRouteRequest) -> CursorRouteRecommendation
             recommended_tier=fallback.momihelm_tier,
             route_class=fallback.route_class,
             reasons=["no eligible Cursor models; defaulting to Composer 2.5"],
+            recommended_path=recommended_path,
+            path_reasons=path_reasons,
+            recommendation_basis="heuristic",
+            confidence=path_confidence,
         )
 
     best_score, best, best_reasons = ranked[0]
@@ -161,6 +279,10 @@ def recommend_cursor_route(req: CursorRouteRequest) -> CursorRouteRecommendation
             else best_reasons[:4]
         ),
         alternatives=_alternatives(best.id, req, ranked[1:4]),
+        recommended_path=recommended_path,
+        path_reasons=path_reasons,
+        recommendation_basis="heuristic",
+        confidence=path_confidence,
     )
     if req.prefer_auto:
         recommendation.reasons.append(

@@ -23,11 +23,14 @@ VALIDATION_ALLOWLIST = frozenset(
         "npm run lint",
         "pytest",
         "python -m pytest",
+        "python3 -m pytest",
     }
 )
 
 MAX_DIFF_CHARS = 200_000
 MAX_CHANGED_FILES = 200
+GENERATED_DIR_NAMES = frozenset({"__pycache__", ".pytest_cache"})
+GENERATED_SUFFIXES = (".pyc",)
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,17 @@ def validation_allowed(command: str | None) -> bool:
     if not normalized:
         return True
     return normalized in VALIDATION_ALLOWLIST
+
+
+def is_generated_path(path: str) -> bool:
+    """Return True for Python cache / pytest cache paths that should not surface."""
+    cleaned = path.strip().strip('"').replace("\\", "/")
+    if cleaned.endswith("/"):
+        cleaned = cleaned[:-1]
+    parts = Path(cleaned).parts
+    if any(part in GENERATED_DIR_NAMES for part in parts):
+        return True
+    return cleaned.endswith(GENERATED_SUFFIXES)
 
 
 def ensure_disposable_sandbox(target: Path | None = None) -> Path:
@@ -128,7 +142,7 @@ def git_preflight(cwd: str) -> GitPreflight:
         )
 
     status = subprocess.run(
-        ["git", "status", "--porcelain"],
+        ["git", "status", "--porcelain", "--untracked-files=all"],
         cwd=path,
         capture_output=True,
         text=True,
@@ -143,7 +157,11 @@ def git_preflight(cwd: str) -> GitPreflight:
             block_reason="git_status_failed",
         )
 
-    lines = [line for line in status.stdout.splitlines() if line.strip()]
+    lines = [
+        line
+        for line in status.stdout.splitlines()
+        if line.strip() and not _status_line_is_generated(path, line)
+    ]
     dirty = bool(lines)
     return GitPreflight(
         cwd=str(path),
@@ -157,7 +175,7 @@ def git_preflight(cwd: str) -> GitPreflight:
 def collect_workspace_changes(cwd: str) -> WorkspaceChangeReport:
     path = Path(cwd).expanduser().resolve()
     status = subprocess.run(
-        ["git", "status", "--porcelain"],
+        ["git", "status", "--porcelain", "--untracked-files=all"],
         cwd=path,
         capture_output=True,
         text=True,
@@ -166,26 +184,35 @@ def collect_workspace_changes(cwd: str) -> WorkspaceChangeReport:
     files: list[str] = []
     if status.returncode == 0:
         for line in status.stdout.splitlines():
-            if not line.strip():
+            if not line.strip() or _status_line_is_generated(path, line):
                 continue
-            # porcelain: XY PATH or XY ORIG -> PATH
-            entry = line[3:] if len(line) > 3 else line
-            if " -> " in entry:
-                entry = entry.split(" -> ", 1)[1]
-            files.append(entry.strip())
+            entry = _status_path(line)
+            if not entry or is_generated_path(entry) or _git_check_ignore(path, entry):
+                continue
+            files.append(entry)
             if len(files) >= MAX_CHANGED_FILES:
                 break
 
+    # Exclude generated paths from the user-facing diff as well.
     diff = subprocess.run(
-        ["git", "diff", "HEAD"],
+        [
+            "git",
+            "diff",
+            "HEAD",
+            "--",
+            ".",
+            ":(exclude)__pycache__",
+            ":(exclude)*/__pycache__/*",
+            ":(exclude)*.pyc",
+            ":(exclude).pytest_cache",
+            ":(exclude)*/.pytest_cache/*",
+        ],
         cwd=path,
         capture_output=True,
         text=True,
         check=False,
     )
     diff_text = diff.stdout if diff.returncode == 0 else ""
-    # Include untracked file contents as a limited note via status only; raw
-    # untracked blobs are not dumped into the persisted path.
     truncated = False
     if len(diff_text) > MAX_DIFF_CHARS:
         diff_text = diff_text[:MAX_DIFF_CHARS]
@@ -193,7 +220,9 @@ def collect_workspace_changes(cwd: str) -> WorkspaceChangeReport:
 
     fingerprint = None
     if diff_text or files:
-        material = (diff_text + "\n" + "\n".join(files)).encode("utf-8", errors="replace")
+        material = (diff_text + "\n" + "\n".join(files)).encode(
+            "utf-8", errors="replace"
+        )
         fingerprint = hashlib.sha256(material).hexdigest()
 
     return WorkspaceChangeReport(
@@ -231,6 +260,33 @@ def run_validation(cwd: str, command: str) -> ValidationReport:
         stdout=(completed.stdout or "")[:20_000],
         stderr=(completed.stderr or "")[:20_000],
     )
+
+
+def _status_path(line: str) -> str:
+    entry = line[3:] if len(line) > 3 else line
+    if " -> " in entry:
+        entry = entry.split(" -> ", 1)[1]
+    return entry.strip().strip('"')
+
+
+def _status_line_is_generated(cwd: Path, line: str) -> bool:
+    entry = _status_path(line)
+    if not entry:
+        return False
+    if is_generated_path(entry):
+        return True
+    return _git_check_ignore(cwd, entry)
+
+
+def _git_check_ignore(cwd: Path, path: str) -> bool:
+    completed = subprocess.run(
+        ["git", "check-ignore", "-q", "--", path],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.returncode == 0
 
 
 def _run_git(args: list[str], cwd: Path) -> None:
