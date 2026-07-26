@@ -100,6 +100,10 @@ services:
 
   n8n:
     image: n8nio/n8n:${N8N_VERSION:-2.31.5}
+    # Loopback-only editor access for local diagnostics. Internal Docker
+    # webhook traffic stays on n8n:5678; do not publish this port publicly.
+    ports:
+      - "127.0.0.1:5679:5678"
     expose:
       - "5678"
     environment:
@@ -109,6 +113,7 @@ services:
       - N8N_HOST=n8n
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
+      - N8N_EDITOR_BASE_URL=http://127.0.0.1:5679
       - N8N_WEBHOOK_URL=http://n8n:5678/
       - N8N_PUBLIC_API_DISABLED=true
       - N8N_PUBLIC_API_SWAGGERUI_DISABLED=true
