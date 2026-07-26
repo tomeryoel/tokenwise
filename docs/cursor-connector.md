@@ -175,8 +175,13 @@ of local `state.vscdb` sync.
 
 See [docs/web-deployment.md](web-deployment.md).
 
+## Cursor Agent through MomiHelm (experimental)
+
+See [cursor-agent-bridge.md](cursor-agent-bridge.md) for the official Cursor SDK
+bridge that lets users run Cursor Agent tasks from the MomiHelm web app.
+
 ## Next slices
 
-1. Automated verification events from tests/build output
-2. Stronger auto-switch UX if Cursor exposes a supported model-control surface
-3. Team/repository learning over verified Cursor outcomes
+1. Harden Cursor SDK bridge + verified model selection UX
+2. Automated verification events from tests/build output
+3. Personal / team / department insights on Cursor-through-MomiHelm sessions

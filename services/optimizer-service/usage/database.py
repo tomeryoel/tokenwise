@@ -210,6 +210,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_coding_sessions_external
 CREATE UNIQUE INDEX IF NOT EXISTS idx_coding_attempts_external
     ON coding_attempts(external_attempt_id)
     WHERE external_attempt_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS cursor_sdk_runs (
+    run_key TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    sdk_run_id TEXT,
+    sdk_agent_id TEXT,
+    selected_model TEXT,
+    recommended_model TEXT,
+    model_used TEXT,
+    status TEXT NOT NULL,
+    result_fingerprint TEXT,
+    error_detail TEXT,
+    duration_ms INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES coding_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (attempt_id) REFERENCES coding_attempts(attempt_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_cursor_sdk_runs_session
+    ON cursor_sdk_runs(session_id, created_at);
 """
 
 
@@ -285,6 +306,40 @@ def _migrate_coding_external_ids(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA user_version = 5")
 
 
+def _migrate_cursor_sdk_runs(conn: sqlite3.Connection) -> None:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version >= 6:
+        return
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cursor_sdk_runs (
+            run_key TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            attempt_id TEXT NOT NULL,
+            sdk_run_id TEXT,
+            sdk_agent_id TEXT,
+            selected_model TEXT,
+            recommended_model TEXT,
+            model_used TEXT,
+            status TEXT NOT NULL,
+            result_fingerprint TEXT,
+            error_detail TEXT,
+            duration_ms INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (session_id) REFERENCES coding_sessions(session_id) ON DELETE CASCADE,
+            FOREIGN KEY (attempt_id) REFERENCES coding_attempts(attempt_id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_cursor_sdk_runs_session
+        ON cursor_sdk_runs(session_id, created_at)
+        """
+    )
+    conn.execute("PRAGMA user_version = 6")
+
+
 def get_db_path() -> str:
     return os.environ.get("USAGE_DB_PATH", DEFAULT_DB_PATH)
 
@@ -296,6 +351,7 @@ def init_db(db_path: str | None = None) -> None:
         conn.executescript(SCHEMA_SQL)
         _migrate_requests(conn)
         _migrate_coding_external_ids(conn)
+        _migrate_cursor_sdk_runs(conn)
         conn.commit()
 
 

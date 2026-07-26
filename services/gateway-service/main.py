@@ -54,6 +54,11 @@ SESSION_TTL_SECONDS = int(
 COOKIE_SECURE = os.environ.get("MOMIHELM_COOKIE_SECURE", "false").lower() == "true"
 CONNECTOR_TOKEN = os.environ.get("MOMIHELM_CONNECTOR_TOKEN", "").strip()
 CONNECTOR_USER_EMAIL = os.environ.get("MOMIHELM_CONNECTOR_USER_EMAIL", "").strip()
+CURSOR_BRIDGE_URL = os.environ.get(
+    "MOMIHELM_CURSOR_BRIDGE_URL",
+    "http://host.docker.internal:8787",
+).rstrip("/")
+CURSOR_BRIDGE_TOKEN = os.environ.get("MOMIHELM_CURSOR_BRIDGE_TOKEN", "").strip()
 ALLOWED_ORIGINS = {
     origin.strip()
     for origin in os.environ.get(
@@ -632,6 +637,40 @@ async def _optimizer_request(
     )
 
 
+async def _bridge_request(
+    method: str,
+    path: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    timeout: float = 300.0,
+) -> dict[str, Any]:
+    if not CURSOR_BRIDGE_TOKEN:
+        raise HTTPException(status_code=503, detail="cursor_bridge_not_configured")
+    url = f"{CURSOR_BRIDGE_URL}{path}"
+    headers = {"X-MomiHelm-Bridge-Token": CURSOR_BRIDGE_TOKEN}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.request(
+                method,
+                url,
+                json=payload,
+                headers=headers,
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="cursor_bridge_unavailable",
+        ) from exc
+    if response.status_code >= 400:
+        detail: Any
+        try:
+            detail = response.json().get("detail", response.text)
+        except Exception:
+            detail = response.text
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    return response.json()
+
+
 def _response_payload(response: Response) -> object | None:
     try:
         return json.loads(response.body)
@@ -1036,3 +1075,133 @@ async def recommend_cursor_route(payload: CursorRouteGatewayRequest, user: Curre
         "/cursor/route/recommend",
         payload=trusted_payload,
     )
+
+
+class CursorAgentRunRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    selected_model: str = Field(min_length=1, max_length=200)
+    recommended_model: str | None = Field(default=None, max_length=200)
+    coding_session_id: str | None = Field(default=None, max_length=200)
+    workflow: Literal["direct", "plan", "agent", "debug", "review", "unknown"] = "agent"
+    cwd: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("prompt", "selected_model", "recommended_model", "coding_session_id", "cwd")
+    @classmethod
+    def trim_agent_fields(cls, value: str | None) -> str | None:
+        return " ".join(value.split()) if isinstance(value, str) else value
+
+
+@app.get("/cursor-agent/health")
+async def cursor_agent_health(_user: CurrentUser):
+    if not CURSOR_BRIDGE_TOKEN:
+        return {
+            "status": "not_configured",
+            "bridge_configured": False,
+            "experimental": True,
+            "detail": "Set MOMIHELM_CURSOR_BRIDGE_TOKEN and start ./momihelm cursor-bridge",
+        }
+    try:
+        payload = await _bridge_request("GET", "/health", timeout=5.0)
+        return {
+            "status": "ok",
+            "bridge_configured": True,
+            "experimental": True,
+            "bridge": payload,
+        }
+    except HTTPException as exc:
+        return {
+            "status": "unavailable",
+            "bridge_configured": True,
+            "experimental": True,
+            "detail": exc.detail,
+        }
+
+
+@app.get("/cursor-agent/models")
+async def cursor_agent_models(_user: CurrentUser):
+    """Prefer live SDK model list from the bridge; fall back to local catalog."""
+    if CURSOR_BRIDGE_TOKEN:
+        try:
+            payload = await _bridge_request("GET", "/models", timeout=30.0)
+            return {
+                "models": payload.get("models", []),
+                "count": payload.get("count", 0),
+                "source": "cursor_sdk",
+                "experimental": True,
+            }
+        except HTTPException:
+            pass
+    catalog = await _optimizer_request("GET", "/cursor/models")
+    body = _response_payload(catalog)
+    models = body.get("models", []) if isinstance(body, dict) else []
+    return {
+        "models": models,
+        "count": len(models),
+        "source": "momihelm_catalog_fallback",
+        "experimental": True,
+        "detail": "Bridge unavailable; showing MomiHelm advisory catalog. SDK acceptance is not guaranteed.",
+    }
+
+
+@app.post("/cursor-agent/run")
+async def cursor_agent_run(payload: CursorAgentRunRequest, user: CurrentUser):
+    bridge_result = await _bridge_request(
+        "POST",
+        "/run",
+        payload={
+            "prompt": payload.prompt,
+            "model": payload.selected_model,
+            "recommended_model": payload.recommended_model,
+            "cwd": payload.cwd,
+        },
+        timeout=300.0,
+    )
+
+    persist_payload = {
+        "organization_id": user.organization_id,
+        "user_id": user.id,
+        "dept_id": user.department_id,
+        "policy_mode": user.policy_mode,
+        "objective": payload.prompt,
+        "coding_session_id": payload.coding_session_id,
+        "selected_model": payload.selected_model,
+        "recommended_model": payload.recommended_model,
+        "model_used": bridge_result.get("model_used"),
+        "sdk_run_id": bridge_result.get("run_id"),
+        "sdk_agent_id": bridge_result.get("agent_id"),
+        "status": bridge_result.get("status", "error"),
+        "result_text": bridge_result.get("result_text"),
+        "error_detail": bridge_result.get("error"),
+        "duration_ms": bridge_result.get("duration_ms") or 0,
+        "workflow": payload.workflow,
+    }
+    persist_response = await _optimizer_request(
+        "POST",
+        "/connectors/cursor-sdk/runs",
+        payload=persist_payload,
+    )
+    persisted = _response_payload(persist_response)
+    if not isinstance(persisted, dict):
+        persisted = {}
+
+    # Return result text only to the authenticated caller. Persistence stores fingerprint.
+    return {
+        "experimental": True,
+        "claim": (
+            "MomiHelm can run Cursor Agent tasks through the official Cursor SDK "
+            "and display the result inside the MomiHelm web application."
+        ),
+        "status": bridge_result.get("status"),
+        "answer": bridge_result.get("result_text"),
+        "error": bridge_result.get("error"),
+        "selected_model": payload.selected_model,
+        "recommended_model": payload.recommended_model,
+        "model_used": bridge_result.get("model_used"),
+        "sdk_run_id": bridge_result.get("run_id"),
+        "sdk_agent_id": bridge_result.get("agent_id"),
+        "duration_ms": bridge_result.get("duration_ms"),
+        "session_id": persisted.get("session_id"),
+        "attempt_id": persisted.get("attempt_id"),
+        "result_fingerprint": persisted.get("result_fingerprint"),
+        "provider": "cursor-sdk",
+    }

@@ -284,3 +284,59 @@ class CursorIngestResponse(BaseModel):
     attempts_created: int
     attempts_skipped: int
     composer_links: list[CursorComposerLink] = Field(default_factory=list)
+
+
+class CursorSdkRunPersistRequest(BaseModel):
+    organization_id: str = Field(min_length=1, max_length=200)
+    user_id: str = Field(min_length=1, max_length=200)
+    dept_id: str = Field(min_length=1, max_length=200)
+    policy_mode: PolicyMode = "balanced"
+    objective: str = Field(min_length=1, max_length=100_000)
+    coding_session_id: str | None = Field(default=None, max_length=200)
+    selected_model: str = Field(min_length=1, max_length=200)
+    recommended_model: str | None = Field(default=None, max_length=200)
+    model_used: str | None = Field(default=None, max_length=200)
+    sdk_run_id: str | None = Field(default=None, max_length=200)
+    sdk_agent_id: str | None = Field(default=None, max_length=200)
+    status: str = Field(min_length=1, max_length=40)
+    result_text: str | None = Field(default=None, max_length=500_000)
+    error_detail: str | None = Field(default=None, max_length=1000)
+    duration_ms: int = Field(default=0, ge=0)
+    workflow: WorkflowType = "agent"
+
+    @field_validator(
+        "organization_id",
+        "user_id",
+        "dept_id",
+        "objective",
+        "coding_session_id",
+        "selected_model",
+        "recommended_model",
+        "model_used",
+        "sdk_run_id",
+        "sdk_agent_id",
+        "status",
+        "error_detail",
+    )
+    @classmethod
+    def trim_sdk_text(cls, value: str | None) -> str | None:
+        return _trim(value) if isinstance(value, str) else value
+
+    @field_validator("policy_mode", mode="before")
+    @classmethod
+    def normalize_sdk_policy(cls, value: object) -> str:
+        return canonicalize_policy_mode(value)
+
+
+class CursorSdkRunPersistResponse(BaseModel):
+    session_id: str
+    attempt_id: str
+    run_key: str
+    result_fingerprint: str | None = None
+    provider: str = "cursor-sdk"
+    selected_model: str
+    recommended_model: str | None = None
+    model_used: str | None = None
+    status: str
+    sdk_run_id: str | None = None
+

@@ -31,13 +31,14 @@
     "Langfuse tracing (optional, privacy-safe, idempotent)",
     "Cursor local-database connector (read-only state.vscdb ingest)",
     "Cursor model catalog and route recommendation across Composer 2.5, GPT-5.6 Sol/Terra, Sonnet 5, Grok 4.5, Fable 5, Opus 5, and Auto",
-    "Live Cursor advisory routing via MCP tools, project hooks, and offline recommend CLI"
+    "Live Cursor advisory routing via MCP tools, project hooks, and offline recommend CLI",
+    "Experimental Cursor-through-MomiHelm path via local official cursor-sdk bridge"
   ],
   "partial_or_planned": [
     "Policy Intelligence runtime (Structured Policy Engine + inheritance)",
     "Policy Evidence Retrieval (POST /policy/query is currently a placeholder)",
     "Real prompt-compression execution (recommendation only today)",
-    "Automatic Cursor model switching (recommendations are advisory today)",
+    "Production hardening of Cursor SDK bridge and full Cursor IDE parity",
     "Cross-tool connectors",
     "Automated coding verification from tests, builds, lint, and type checks through connectors",
     "Controlled multi-model benchmark expansion and evidence-based product claim gate",

@@ -51,6 +51,7 @@ from usage.session_repository import (
     get_coding_session_evaluation,
     ingest_cursor_composers,
     list_coding_sessions,
+    persist_cursor_sdk_run,
     update_coding_session,
 )
 from usage.scoring import DecisionEvaluationResponse, EvaluationOptions
@@ -64,6 +65,8 @@ from usage.session_schemas import (
     CodingSessionUpdateRequest,
     CursorIngestRequest,
     CursorIngestResponse,
+    CursorSdkRunPersistRequest,
+    CursorSdkRunPersistResponse,
     VerificationCreateRequest,
     VerificationResponse,
 )
@@ -379,6 +382,18 @@ def coding_session_evaluation_create(
 )
 def cursor_connector_ingest(req: CursorIngestRequest):
     return ingest_cursor_composers(req)
+
+
+@app.post(
+    "/connectors/cursor-sdk/runs",
+    response_model=CursorSdkRunPersistResponse,
+    status_code=201,
+)
+def cursor_sdk_run_persist(req: CursorSdkRunPersistRequest):
+    try:
+        return persist_cursor_sdk_run(req)
+    except CodingSessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="coding_session_not_found") from exc
 
 
 @app.get("/cursor/models")

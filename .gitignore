@@ -9,6 +9,7 @@
 
 # Local MomiHelm connector/runtime artifacts
 .momihelm/
+bridges/cursor-sdk/.venv/
 
 # Python
 __pycache__/

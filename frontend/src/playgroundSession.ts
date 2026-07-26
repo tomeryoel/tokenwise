@@ -7,7 +7,7 @@ import type {
   WorkflowType,
 } from "./types";
 
-export type PlaygroundMode = "coding" | "quick";
+export type PlaygroundMode = "coding" | "quick" | "cursor_agent";
 export type CodingPhase =
   | "draft"
   | "review"
@@ -46,6 +46,24 @@ export interface PlaygroundSession {
   evaluation: DecisionEvaluation | null;
   verificationLoading: boolean;
   verificationError: string | null;
+  cursorSelectedModel: string;
+  cursorRecommendedModel: string | null;
+  cursorRecommendationReasons: string[];
+  cursorModels: Array<{ id: string; display_name: string }>;
+  cursorBridgeStatus: string | null;
+  cursorAgentResult: {
+    answer: string | null;
+    status: string;
+    model_used: string | null;
+    selected_model: string;
+    recommended_model: string | null;
+    sdk_run_id: string | null;
+    session_id: string | null;
+    attempt_id: string | null;
+    result_fingerprint: string | null;
+    claim: string;
+    error: string | null;
+  } | null;
 }
 
 export const initialPlaygroundSession = (): PlaygroundSession => ({
@@ -65,4 +83,10 @@ export const initialPlaygroundSession = (): PlaygroundSession => ({
   evaluation: null,
   verificationLoading: false,
   verificationError: null,
+  cursorSelectedModel: "",
+  cursorRecommendedModel: null,
+  cursorRecommendationReasons: [],
+  cursorModels: [],
+  cursorBridgeStatus: null,
+  cursorAgentResult: null,
 });

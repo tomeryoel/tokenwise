@@ -332,6 +332,29 @@ cursor_recommend() {
     PYTHONPATH="$ROOT_DIR" exec python3 -m connectors.cursor recommend "$@"
 }
 
+cursor_bridge() {
+    load_env
+    bridge_dir="$ROOT_DIR/bridges/cursor-sdk"
+    venv_python="$bridge_dir/.venv/bin/python"
+    if [ ! -x "$venv_python" ]; then
+        say "Creating Cursor SDK bridge virtualenv..."
+        python3 -m venv "$bridge_dir/.venv"
+        "$bridge_dir/.venv/bin/pip" install -r "$bridge_dir/requirements.txt"
+    fi
+    [ -n "${MOMIHELM_CURSOR_BRIDGE_TOKEN:-}" ] ||
+        fail "Set MOMIHELM_CURSOR_BRIDGE_TOKEN in .env before starting the bridge."
+    [ -n "${CURSOR_API_KEY:-}" ] ||
+        fail "Set CURSOR_API_KEY in .env before starting the bridge."
+    if [ -z "${MOMIHELM_CURSOR_BRIDGE_CWD:-}" ]; then
+        MOMIHELM_CURSOR_BRIDGE_CWD="$ROOT_DIR"
+        export MOMIHELM_CURSOR_BRIDGE_CWD
+    fi
+    say "Starting local Cursor SDK bridge on ${MOMIHELM_CURSOR_BRIDGE_HOST:-127.0.0.1}:${MOMIHELM_CURSOR_BRIDGE_PORT:-8787}"
+    say "Experimental: this runs Cursor agents through the official cursor-sdk."
+    cd "$bridge_dir"
+    exec "$venv_python" server.py
+}
+
 doctor() {
     load_env
     require_docker
@@ -396,6 +419,7 @@ Cursor connector + live routing:
   ./momihelm cursor-sync        Read local Cursor state.vscdb and ingest into MomiHelm
                                 Pass --dry-run to inspect without posting.
   ./momihelm cursor-recommend   Recommend a Cursor model for an objective (offline)
+  ./momihelm cursor-bridge      Start the local Cursor SDK bridge (experimental)
 
 See docs/web-deployment.md for server setup.
 See docs/cursor-connector.md for Cursor integration and live MCP/hooks.
@@ -427,6 +451,7 @@ case "$command" in
         shift
         cursor_recommend "$@"
         ;;
+    cursor-bridge) cursor_bridge ;;
     help|-h|--help) show_help ;;
     *) fail "Unknown command '$command'. Run ./momihelm help." ;;
 esac

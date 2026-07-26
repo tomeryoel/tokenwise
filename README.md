@@ -170,6 +170,10 @@ For a public internet deployment with automatic HTTPS, see
 For Cursor IDE integration, see [docs/cursor-connector.md](docs/cursor-connector.md)
 and run `./momihelm cursor-sync`.
 
+For the experimental Cursor-through-MomiHelm SDK bridge, see
+[docs/cursor-agent-bridge.md](docs/cursor-agent-bridge.md) and run
+`./momihelm cursor-bridge`.
+
 ### Lifecycle commands
 
 | Action | macOS / Linux | Windows PowerShell |

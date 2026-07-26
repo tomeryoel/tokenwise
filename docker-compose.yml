@@ -159,10 +159,14 @@ services:
       - MOMIHELM_ALLOWED_ORIGINS=${MOMIHELM_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}
       - MOMIHELM_CONNECTOR_TOKEN=${MOMIHELM_CONNECTOR_TOKEN:-}
       - MOMIHELM_CONNECTOR_USER_EMAIL=${MOMIHELM_CONNECTOR_USER_EMAIL:-}
+      - MOMIHELM_CURSOR_BRIDGE_URL=${MOMIHELM_CURSOR_BRIDGE_URL:-http://host.docker.internal:8787}
+      - MOMIHELM_CURSOR_BRIDGE_TOKEN=${MOMIHELM_CURSOR_BRIDGE_TOKEN:-}
       - MOMIHELM_MAX_PROMPT_CHARS=${MOMIHELM_MAX_PROMPT_CHARS:-100000}
       - MOMIHELM_MAX_IMAGE_BASE64_CHARS=${MOMIHELM_MAX_IMAGE_BASE64_CHARS:-7000000}
     volumes:
       - auth_data:/app/data/auth
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       n8n:
         condition: service_healthy
