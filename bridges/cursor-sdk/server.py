@@ -1,7 +1,8 @@
 """Local MomiHelm Cursor SDK bridge (dev-only).
 
-Runs on the developer machine. Receives authenticated tasks from the MomiHelm
-gateway, executes them through the official cursor-sdk, and returns results.
+Runs on the developer machine. Receives authenticated coding-run tasks from the
+MomiHelm gateway, executes them through the official cursor-sdk against a local
+workspace, and returns status / changed files / diff / validation.
 
 Does not read or write Cursor state.vscdb.
 Does not control the Cursor IDE chat UI.
@@ -19,12 +20,30 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 try:
-    from cursor_sdk import Agent, AgentOptions, Cursor, CursorAgentError, LocalAgentOptions
+    from cursor_sdk import (
+        Agent,
+        AgentOptions,
+        Cursor,
+        CursorAgentError,
+        LocalAgentOptions,
+        SandboxOptions,
+    )
 except ImportError as exc:  # pragma: no cover
     raise SystemExit(
         "cursor-sdk is not installed. Create the bridge venv and install "
         "requirements.txt first."
     ) from exc
+
+from workspace_safety import (
+    VALIDATION_ALLOWLIST,
+    collect_workspace_changes,
+    default_workspace_cwd,
+    ensure_disposable_sandbox,
+    git_preflight,
+    normalize_validation_command,
+    run_validation,
+    validation_allowed,
+)
 
 
 SERVICE_NAME = "momihelm-cursor-bridge"
@@ -33,10 +52,18 @@ DEFAULT_PORT = 8787
 
 BRIDGE_TOKEN = os.environ.get("MOMIHELM_CURSOR_BRIDGE_TOKEN", "").strip()
 CURSOR_API_KEY = os.environ.get("CURSOR_API_KEY", "").strip()
-DEFAULT_CWD = os.environ.get(
-    "MOMIHELM_CURSOR_BRIDGE_CWD",
-    os.environ.get("PWD", os.getcwd()),
-).strip()
+SANDBOX_ENABLED = os.environ.get("MOMIHELM_CURSOR_BRIDGE_SANDBOX", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+CLAIM = (
+    "MomiHelm can run Cursor coding-agent tasks through the official Cursor SDK "
+    "against a local workspace and display status, changed files, diff, and "
+    "validation inside the MomiHelm web application."
+)
 
 
 app = FastAPI(title=SERVICE_NAME, docs_url=None, redoc_url=None)
@@ -48,10 +75,20 @@ class RunRequest(BaseModel):
     recommended_model: str | None = Field(default=None, max_length=200)
     cwd: str | None = Field(default=None, max_length=1000)
     request_id: str | None = Field(default=None, max_length=200)
+    validation_command: str | None = Field(default=None, max_length=200)
+    include_diff_in_response: bool = True
 
 
 class RunResponse(BaseModel):
-    status: Literal["finished", "error", "cancelled", "bridge_error"]
+    status: Literal[
+        "finished",
+        "error",
+        "cancelled",
+        "bridge_error",
+        "blocked_dirty_worktree",
+        "blocked_validation",
+        "blocked_preflight",
+    ]
     result_text: str | None = None
     run_id: str | None = None
     agent_id: str | None = None
@@ -61,10 +98,20 @@ class RunResponse(BaseModel):
     duration_ms: int | None = None
     error: str | None = None
     experimental: bool = True
-    claim: str = (
-        "MomiHelm can run Cursor Agent tasks through the official Cursor SDK "
-        "and display the result inside the MomiHelm web application."
-    )
+    claim: str = CLAIM
+    workspace_cwd: str | None = None
+    workspace_kind: str | None = None
+    sdk_sandbox_enabled: bool | None = None
+    changed_files: list[str] = Field(default_factory=list)
+    diff_text: str | None = None
+    diff_fingerprint: str | None = None
+    diff_truncated: bool = False
+    validation_command: str | None = None
+    validation_status: str | None = None
+    validation_exit_code: int | None = None
+    validation_stdout: str | None = None
+    validation_stderr: str | None = None
+    persist_raw_diff: bool = False
 
 
 def _require_bridge_auth(token: str | None) -> None:
@@ -97,16 +144,40 @@ def _model_to_dict(model: Any) -> dict[str, Any]:
     }
 
 
+def _workspace_kind(cwd: str) -> str:
+    try:
+        sandbox = str(ensure_disposable_sandbox())
+    except Exception:
+        return "custom"
+    return "disposable_sandbox" if os.path.samefile(cwd, sandbox) else "custom"
+
+
 @app.get("/health")
 def health(x_momihelm_bridge_token: str | None = Header(default=None)):
     _require_bridge_auth(x_momihelm_bridge_token)
+    try:
+        default_cwd = default_workspace_cwd()
+    except Exception as exc:
+        default_cwd = f"unavailable: {exc}"
+    preflight = None
+    if isinstance(default_cwd, str) and os.path.isdir(default_cwd):
+        report = git_preflight(default_cwd)
+        preflight = {
+            "is_git_repo": report.is_git_repo,
+            "dirty": report.dirty,
+            "block_reason": report.block_reason,
+        }
     return {
         "status": "ok",
         "service": SERVICE_NAME,
         "cursor_api_key_configured": bool(CURSOR_API_KEY),
-        "default_cwd": DEFAULT_CWD,
+        "default_cwd": default_cwd,
+        "sdk_sandbox_enabled_default": SANDBOX_ENABLED,
+        "validation_allowlist": sorted(VALIDATION_ALLOWLIST),
+        "git_preflight": preflight,
         "experimental": True,
         "bind": f"{DEFAULT_HOST}:{os.environ.get('MOMIHELM_CURSOR_BRIDGE_PORT', DEFAULT_PORT)}",
+        "claim": CLAIM,
     }
 
 
@@ -132,9 +203,62 @@ def run_agent(
 ):
     _require_bridge_auth(x_momihelm_bridge_token)
     api_key = _require_api_key()
-    cwd = (payload.cwd or DEFAULT_CWD).strip() or DEFAULT_CWD
+
+    try:
+        cwd = (payload.cwd or default_workspace_cwd()).strip()
+    except Exception as exc:
+        return RunResponse(
+            status="blocked_preflight",
+            model_requested=payload.model,
+            recommended_model=payload.recommended_model,
+            error=f"workspace_unavailable: {exc}",
+        )
+
     if not os.path.isdir(cwd):
         raise HTTPException(status_code=400, detail="cwd_not_found")
+
+    validation_command = normalize_validation_command(payload.validation_command)
+    if validation_command and not validation_allowed(validation_command):
+        return RunResponse(
+            status="blocked_validation",
+            model_requested=payload.model,
+            recommended_model=payload.recommended_model,
+            workspace_cwd=cwd,
+            workspace_kind=_workspace_kind(cwd),
+            validation_command=validation_command,
+            validation_status="rejected_not_allowlisted",
+            error=(
+                "validation_command_not_allowlisted: "
+                + ", ".join(sorted(VALIDATION_ALLOWLIST))
+            ),
+        )
+
+    preflight = git_preflight(cwd)
+    if preflight.block_reason:
+        return RunResponse(
+            status="blocked_dirty_worktree"
+            if preflight.block_reason == "dirty_git_worktree"
+            else "blocked_preflight",
+            model_requested=payload.model,
+            recommended_model=payload.recommended_model,
+            workspace_cwd=cwd,
+            workspace_kind=_workspace_kind(cwd),
+            changed_files=[
+                (line[3:] if len(line) > 3 else line).strip()
+                for line in preflight.status_lines
+            ],
+            error=(
+                f"{preflight.block_reason}: refuse coding run on a dirty Git "
+                "worktree. Reset or commit the workspace first "
+                "(use the disposable sandbox for experiments)."
+            ),
+            validation_command=validation_command,
+        )
+
+    local_options = LocalAgentOptions(
+        cwd=cwd,
+        sandbox_options=SandboxOptions(enabled=SANDBOX_ENABLED),
+    )
 
     started = time.monotonic()
     try:
@@ -143,7 +267,7 @@ def run_agent(
             AgentOptions(
                 api_key=api_key,
                 model=payload.model,
-                local=LocalAgentOptions(cwd=cwd),
+                local=local_options,
             ),
         )
     except CursorAgentError as exc:
@@ -157,6 +281,10 @@ def run_agent(
             recommended_model=payload.recommended_model,
             duration_ms=int((time.monotonic() - started) * 1000),
             error=f"cursor_agent_startup_failed: {exc}",
+            workspace_cwd=cwd,
+            workspace_kind=_workspace_kind(cwd),
+            sdk_sandbox_enabled=SANDBOX_ENABLED,
+            validation_command=validation_command,
         )
     except Exception as exc:  # pragma: no cover
         return RunResponse(
@@ -169,6 +297,10 @@ def run_agent(
             recommended_model=payload.recommended_model,
             duration_ms=int((time.monotonic() - started) * 1000),
             error=f"cursor_sdk_error: {exc}",
+            workspace_cwd=cwd,
+            workspace_kind=_workspace_kind(cwd),
+            sdk_sandbox_enabled=SANDBOX_ENABLED,
+            validation_command=validation_command,
         )
 
     model_used = None
@@ -182,6 +314,11 @@ def run_agent(
     else:
         status = "error"
 
+    changes = collect_workspace_changes(cwd)
+    validation_report = None
+    if validation_command and status == "finished":
+        validation_report = run_validation(cwd, validation_command)
+
     return RunResponse(
         status=status,
         result_text=getattr(result, "result", None),
@@ -193,6 +330,19 @@ def run_agent(
         duration_ms=getattr(result, "duration_ms", None)
         or int((time.monotonic() - started) * 1000),
         error=None if status == "finished" else f"run_status_{status}",
+        workspace_cwd=cwd,
+        workspace_kind=_workspace_kind(cwd),
+        sdk_sandbox_enabled=SANDBOX_ENABLED,
+        changed_files=changes.changed_files,
+        diff_text=changes.diff_text if payload.include_diff_in_response else None,
+        diff_fingerprint=changes.diff_fingerprint,
+        diff_truncated=changes.diff_truncated,
+        validation_command=validation_command,
+        validation_status=validation_report.status if validation_report else None,
+        validation_exit_code=validation_report.exit_code if validation_report else None,
+        validation_stdout=validation_report.stdout if validation_report else None,
+        validation_stderr=validation_report.stderr if validation_report else None,
+        persist_raw_diff=False,
     )
 
 
@@ -208,6 +358,12 @@ def main() -> None:
         raise SystemExit(
             "Set MOMIHELM_CURSOR_BRIDGE_TOKEN before starting the bridge."
         )
+    # Ensure the disposable sandbox exists before advertising the default cwd.
+    try:
+        ensure_disposable_sandbox()
+    except Exception as exc:
+        raise SystemExit(f"Could not prepare disposable sandbox: {exc}") from exc
+
     host = os.environ.get("MOMIHELM_CURSOR_BRIDGE_HOST", DEFAULT_HOST)
     port = int(os.environ.get("MOMIHELM_CURSOR_BRIDGE_PORT", str(DEFAULT_PORT)))
     uvicorn.run(

@@ -90,6 +90,7 @@ export default function Playground({
     cursorRecommendationReasons,
     cursorModels,
     cursorBridgeStatus,
+    cursorValidationCommand,
     cursorAgentResult,
   } = session;
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -236,6 +237,8 @@ export default function Playground({
         selected_model: cursorSelectedModel,
         recommended_model: cursorRecommendedModel,
         workflow: "agent",
+        validation_command: cursorValidationCommand || null,
+        include_diff_in_response: true,
       });
       setSession((current) => ({
         ...current,
@@ -253,16 +256,29 @@ export default function Playground({
           result_fingerprint: response.result_fingerprint,
           claim: response.claim,
           error: response.error,
+          workspace_cwd: response.workspace_cwd ?? null,
+          workspace_kind: response.workspace_kind ?? null,
+          sdk_sandbox_enabled: response.sdk_sandbox_enabled ?? null,
+          changed_files: response.changed_files ?? [],
+          diff_text: response.diff_text ?? null,
+          diff_fingerprint: response.diff_fingerprint ?? null,
+          diff_truncated: Boolean(response.diff_truncated),
+          validation_command: response.validation_command ?? null,
+          validation_status: response.validation_status ?? null,
+          validation_exit_code: response.validation_exit_code ?? null,
+          validation_stdout: response.validation_stdout ?? null,
+          validation_stderr: response.validation_stderr ?? null,
         },
         error:
           response.status === "finished"
             ? null
-            : response.error || `Cursor Agent finished with status ${response.status}`,
+            : response.error ||
+              `Cursor Agent Coding Run finished with status ${response.status}`,
       }));
       setAnnouncement(
         response.status === "finished"
-          ? "Cursor Agent result is ready in MomiHelm."
-          : "Cursor Agent run did not finish successfully.",
+          ? "Cursor Agent Coding Run result is ready in MomiHelm."
+          : "Cursor Agent Coding Run did not finish successfully.",
       );
     } catch (requestError) {
       const message =
@@ -525,7 +541,7 @@ export default function Playground({
       nextMode === "coding"
         ? "Coding-session mode is ready."
         : nextMode === "cursor_agent"
-          ? "Cursor Agent experimental mode is ready."
+          ? "Cursor Agent Coding Run experimental mode is ready."
           : "Quick-question mode is ready.",
     );
     if (nextMode === "cursor_agent") {
@@ -540,7 +556,7 @@ export default function Playground({
     mode === "quick"
       ? `Ask ${PRODUCT_NAME}`
       : mode === "cursor_agent"
-        ? "Run with Cursor Agent"
+        ? "Run Cursor Agent Coding Run"
         : codingPhase === "draft"
           ? "Review coding objective"
           : codingPhase === "review"
@@ -646,8 +662,8 @@ export default function Playground({
           disabled={Boolean(codingSession && codingPhase !== "evaluated")}
           onClick={() => setMode("cursor_agent")}
         >
-          <span>Cursor Agent (experimental)</span>
-          <small>Run Cursor SDK tasks inside MomiHelm</small>
+          <span>Cursor Agent Coding Run (experimental)</span>
+          <small>SDK coding agent against a disposable sandbox</small>
         </button>
       </div>
 
@@ -674,7 +690,7 @@ export default function Playground({
               ? "What should MomiHelm try next?"
               : "What coding objective should MomiHelm help complete?"
             : mode === "cursor_agent"
-              ? "What coding task should Cursor Agent run?"
+              ? "What coding change should the Cursor Agent make in the sandbox?"
               : "What would you like help with?"}
         </label>
         <textarea
@@ -686,7 +702,7 @@ export default function Playground({
             mode === "coding"
               ? "Describe the bug, feature, review, tests, or coding outcome you need..."
               : mode === "cursor_agent"
-                ? "Describe the coding task for the Cursor SDK agent..."
+                ? "Example: Update hello.py so greet() returns a personalized greeting, then keep tests green."
               : "Ask a question, analyze an idea, or request help..."
           }
           value={prompt}
@@ -708,14 +724,18 @@ export default function Playground({
         />
 
         {mode === "cursor_agent" && (
-          <section className="cursor-agent-panel" aria-label="Cursor Agent controls">
+          <section
+            className="cursor-agent-panel"
+            aria-label="Cursor Agent Coding Run controls"
+          >
             <div className="continuing-session-banner">
               <span>Experimental</span>
-              <strong>Cursor Agent via official Cursor SDK</strong>
+              <strong>Cursor Agent Coding Run via official Cursor SDK</strong>
               <small>
-                This does not control the Cursor IDE chat panel. It runs a Cursor
-                SDK agent through a local bridge and shows the result here.
-                Bridge status: {cursorBridgeStatus ?? "unknown"}.
+                Runs against the disposable local sandbox by default. Dirty Git
+                worktrees are hard-blocked. Raw diffs are shown for this run only
+                and are not persisted by default. Bridge status:{" "}
+                {cursorBridgeStatus ?? "unknown"}.
               </small>
             </div>
 
@@ -749,6 +769,26 @@ export default function Playground({
                       </option>
                     ))
                   )}
+                </select>
+              </label>
+              <label>
+                Validation command (allowlisted)
+                <select
+                  value={cursorValidationCommand}
+                  disabled={loading}
+                  onChange={(event) =>
+                    setSession((current) => ({
+                      ...current,
+                      cursorValidationCommand: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">No validation</option>
+                  <option value="python -m pytest">python -m pytest</option>
+                  <option value="pytest">pytest</option>
+                  <option value="npm test">npm test</option>
+                  <option value="npm run test">npm run test</option>
+                  <option value="npm run lint">npm run lint</option>
                 </select>
               </label>
             </div>
@@ -912,9 +952,9 @@ export default function Playground({
       )}
 
       {mode === "cursor_agent" && cursorAgentResult && (
-        <section className="result" aria-label="Cursor Agent result">
+        <section className="result" aria-label="Cursor Agent Coding Run result">
           <div className="result-context">
-            <span>Cursor Agent (experimental)</span>
+            <span>Cursor Agent Coding Run (experimental)</span>
             <p>{submittedPrompt}</p>
             <small>
               Selected: {cursorAgentResult.selected_model}
@@ -927,6 +967,12 @@ export default function Playground({
               {cursorAgentResult.sdk_run_id
                 ? ` · Run: ${cursorAgentResult.sdk_run_id}`
                 : ""}
+              {cursorAgentResult.workspace_kind
+                ? ` · Workspace: ${cursorAgentResult.workspace_kind}`
+                : ""}
+              {cursorAgentResult.validation_status
+                ? ` · Validation: ${cursorAgentResult.validation_status}`
+                : ""}
             </small>
           </div>
           <article className="answer-card">
@@ -936,7 +982,7 @@ export default function Playground({
               </div>
               <div>
                 <span>{PRODUCT_NAME} + Cursor SDK</span>
-                <h2>Cursor Agent result</h2>
+                <h2>Coding Run result</h2>
               </div>
               <span className="answer-state">{cursorAgentResult.status}</span>
             </header>
@@ -947,6 +993,70 @@ export default function Playground({
                   "*No answer content was returned.*"}
               </ReactMarkdown>
             </div>
+            {cursorAgentResult.workspace_cwd && (
+              <p className="muted">
+                Workspace: <code>{cursorAgentResult.workspace_cwd}</code>
+                {cursorAgentResult.sdk_sandbox_enabled != null
+                  ? ` · SDK sandbox enabled: ${String(cursorAgentResult.sdk_sandbox_enabled)}`
+                  : ""}
+              </p>
+            )}
+            {cursorAgentResult.changed_files.length > 0 && (
+              <div className="answer-content">
+                <h3>Changed files</h3>
+                <ul className="muted-list">
+                  {cursorAgentResult.changed_files.map((file) => (
+                    <li key={file}>
+                      <code>{file}</code>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {cursorAgentResult.diff_text && (
+              <div className="answer-content">
+                <h3>
+                  Diff for this run
+                  {cursorAgentResult.diff_truncated ? " (truncated)" : ""}
+                </h3>
+                <pre>
+                  <code>{cursorAgentResult.diff_text}</code>
+                </pre>
+                <small>
+                  Shown to you for this run only. Raw diffs are not persisted by
+                  default
+                  {cursorAgentResult.diff_fingerprint
+                    ? ` · fingerprint ${cursorAgentResult.diff_fingerprint.slice(0, 12)}…`
+                    : ""}
+                  .
+                </small>
+              </div>
+            )}
+            {cursorAgentResult.validation_command && (
+              <div className="answer-content">
+                <h3>Validation</h3>
+                <p>
+                  <code>{cursorAgentResult.validation_command}</code> →{" "}
+                  {cursorAgentResult.validation_status ?? "n/a"}
+                  {cursorAgentResult.validation_exit_code != null
+                    ? ` (exit ${cursorAgentResult.validation_exit_code})`
+                    : ""}
+                </p>
+                {(cursorAgentResult.validation_stdout ||
+                  cursorAgentResult.validation_stderr) && (
+                  <pre>
+                    <code>
+                      {[
+                        cursorAgentResult.validation_stdout,
+                        cursorAgentResult.validation_stderr,
+                      ]
+                        .filter(Boolean)
+                        .join("\n")}
+                    </code>
+                  </pre>
+                )}
+              </div>
+            )}
             <footer className="answer-footer">
               <span>{cursorAgentResult.claim}</span>
               <small>

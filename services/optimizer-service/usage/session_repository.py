@@ -974,6 +974,32 @@ def persist_cursor_sdk_run(
     executed = get_cursor_model(model_for_attempt)
     recommended_tier = recommended.momihelm_tier if recommended else "balanced"
     executed_tier = executed.momihelm_tier if executed else "balanced"
+    changed_files_json = json.dumps(req.changed_files)
+
+    def _existing_response(existing) -> CursorSdkRunPersistResponse:
+        files_raw = existing["changed_files_json"] if "changed_files_json" in existing.keys() else None
+        try:
+            files = json.loads(files_raw) if files_raw else []
+        except (TypeError, json.JSONDecodeError):
+            files = []
+        if not isinstance(files, list):
+            files = []
+        return CursorSdkRunPersistResponse(
+            session_id=existing["session_id"],
+            attempt_id=existing["attempt_id"],
+            run_key=existing["run_key"],
+            result_fingerprint=existing["result_fingerprint"],
+            selected_model=existing["selected_model"] or req.selected_model,
+            recommended_model=existing["recommended_model"],
+            model_used=existing["model_used"],
+            status=existing["status"],
+            sdk_run_id=existing["sdk_run_id"],
+            workspace_kind=existing["workspace_kind"] if "workspace_kind" in existing.keys() else None,
+            changed_files=[str(item) for item in files],
+            diff_fingerprint=existing["diff_fingerprint"] if "diff_fingerprint" in existing.keys() else None,
+            validation_command=existing["validation_command"] if "validation_command" in existing.keys() else None,
+            validation_status=existing["validation_status"] if "validation_status" in existing.keys() else None,
+        )
 
     with get_connection(db_path) as conn:
         existing = conn.execute(
@@ -981,17 +1007,7 @@ def persist_cursor_sdk_run(
             (run_key,),
         ).fetchone()
         if existing is not None:
-            return CursorSdkRunPersistResponse(
-                session_id=existing["session_id"],
-                attempt_id=existing["attempt_id"],
-                run_key=existing["run_key"],
-                result_fingerprint=existing["result_fingerprint"],
-                selected_model=existing["selected_model"] or req.selected_model,
-                recommended_model=existing["recommended_model"],
-                model_used=existing["model_used"],
-                status=existing["status"],
-                sdk_run_id=existing["sdk_run_id"],
-            )
+            return _existing_response(existing)
 
         session_id = req.coding_session_id
         if session_id:
@@ -1076,8 +1092,10 @@ def persist_cursor_sdk_run(
             INSERT INTO cursor_sdk_runs (
                 run_key, session_id, attempt_id, sdk_run_id, sdk_agent_id,
                 selected_model, recommended_model, model_used, status,
-                result_fingerprint, error_detail, duration_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                result_fingerprint, error_detail, duration_ms,
+                workspace_kind, changed_files_json, diff_fingerprint,
+                validation_command, validation_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_key,
@@ -1092,6 +1110,11 @@ def persist_cursor_sdk_run(
                 result_fingerprint,
                 (req.error_detail or "")[:1000] or None,
                 req.duration_ms,
+                req.workspace_kind,
+                changed_files_json,
+                req.diff_fingerprint,
+                req.validation_command,
+                req.validation_status,
             ),
         )
         conn.execute(
@@ -1115,4 +1138,9 @@ def persist_cursor_sdk_run(
         model_used=req.model_used,
         status=req.status,
         sdk_run_id=req.sdk_run_id,
+        workspace_kind=req.workspace_kind,
+        changed_files=list(req.changed_files),
+        diff_fingerprint=req.diff_fingerprint,
+        validation_command=req.validation_command,
+        validation_status=req.validation_status,
     )

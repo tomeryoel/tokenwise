@@ -1084,8 +1084,17 @@ class CursorAgentRunRequest(BaseModel):
     coding_session_id: str | None = Field(default=None, max_length=200)
     workflow: Literal["direct", "plan", "agent", "debug", "review", "unknown"] = "agent"
     cwd: str | None = Field(default=None, max_length=1000)
+    validation_command: str | None = Field(default=None, max_length=200)
+    include_diff_in_response: bool = True
 
-    @field_validator("prompt", "selected_model", "recommended_model", "coding_session_id", "cwd")
+    @field_validator(
+        "prompt",
+        "selected_model",
+        "recommended_model",
+        "coding_session_id",
+        "cwd",
+        "validation_command",
+    )
     @classmethod
     def trim_agent_fields(cls, value: str | None) -> str | None:
         return " ".join(value.split()) if isinstance(value, str) else value
@@ -1153,10 +1162,18 @@ async def cursor_agent_run(payload: CursorAgentRunRequest, user: CurrentUser):
             "model": payload.selected_model,
             "recommended_model": payload.recommended_model,
             "cwd": payload.cwd,
+            "validation_command": payload.validation_command,
+            "include_diff_in_response": payload.include_diff_in_response,
         },
         timeout=300.0,
     )
 
+    changed_files = bridge_result.get("changed_files") or []
+    if not isinstance(changed_files, list):
+        changed_files = []
+    changed_files = [str(item) for item in changed_files[:200]]
+
+    # Persistence stores safe metadata only. Raw diffs are never written by default.
     persist_payload = {
         "organization_id": user.organization_id,
         "user_id": user.id,
@@ -1174,6 +1191,11 @@ async def cursor_agent_run(payload: CursorAgentRunRequest, user: CurrentUser):
         "error_detail": bridge_result.get("error"),
         "duration_ms": bridge_result.get("duration_ms") or 0,
         "workflow": payload.workflow,
+        "workspace_kind": bridge_result.get("workspace_kind"),
+        "changed_files": changed_files,
+        "diff_fingerprint": bridge_result.get("diff_fingerprint"),
+        "validation_command": bridge_result.get("validation_command"),
+        "validation_status": bridge_result.get("validation_status"),
     }
     persist_response = await _optimizer_request(
         "POST",
@@ -1184,12 +1206,14 @@ async def cursor_agent_run(payload: CursorAgentRunRequest, user: CurrentUser):
     if not isinstance(persisted, dict):
         persisted = {}
 
-    # Return result text only to the authenticated caller. Persistence stores fingerprint.
+    # Return result + per-run diff to the authenticated caller only.
     return {
         "experimental": True,
-        "claim": (
-            "MomiHelm can run Cursor Agent tasks through the official Cursor SDK "
-            "and display the result inside the MomiHelm web application."
+        "claim": bridge_result.get("claim")
+        or (
+            "MomiHelm can run Cursor coding-agent tasks through the official "
+            "Cursor SDK against a local workspace and display status, changed "
+            "files, diff, and validation inside the MomiHelm web application."
         ),
         "status": bridge_result.get("status"),
         "answer": bridge_result.get("result_text"),
@@ -1204,4 +1228,19 @@ async def cursor_agent_run(payload: CursorAgentRunRequest, user: CurrentUser):
         "attempt_id": persisted.get("attempt_id"),
         "result_fingerprint": persisted.get("result_fingerprint"),
         "provider": "cursor-sdk",
+        "workspace_cwd": bridge_result.get("workspace_cwd"),
+        "workspace_kind": bridge_result.get("workspace_kind"),
+        "sdk_sandbox_enabled": bridge_result.get("sdk_sandbox_enabled"),
+        "changed_files": changed_files,
+        "diff_text": bridge_result.get("diff_text")
+        if payload.include_diff_in_response
+        else None,
+        "diff_fingerprint": bridge_result.get("diff_fingerprint"),
+        "diff_truncated": bool(bridge_result.get("diff_truncated")),
+        "validation_command": bridge_result.get("validation_command"),
+        "validation_status": bridge_result.get("validation_status"),
+        "validation_exit_code": bridge_result.get("validation_exit_code"),
+        "validation_stdout": bridge_result.get("validation_stdout"),
+        "validation_stderr": bridge_result.get("validation_stderr"),
+        "persist_raw_diff": False,
     }

@@ -303,6 +303,11 @@ class CursorSdkRunPersistRequest(BaseModel):
     error_detail: str | None = Field(default=None, max_length=1000)
     duration_ms: int = Field(default=0, ge=0)
     workflow: WorkflowType = "agent"
+    workspace_kind: str | None = Field(default=None, max_length=80)
+    changed_files: list[str] = Field(default_factory=list)
+    diff_fingerprint: str | None = Field(default=None, max_length=128)
+    validation_command: str | None = Field(default=None, max_length=200)
+    validation_status: str | None = Field(default=None, max_length=80)
 
     @field_validator(
         "organization_id",
@@ -317,10 +322,24 @@ class CursorSdkRunPersistRequest(BaseModel):
         "sdk_agent_id",
         "status",
         "error_detail",
+        "workspace_kind",
+        "diff_fingerprint",
+        "validation_command",
+        "validation_status",
     )
     @classmethod
     def trim_sdk_text(cls, value: str | None) -> str | None:
         return _trim(value) if isinstance(value, str) else value
+
+    @field_validator("changed_files")
+    @classmethod
+    def limit_changed_files(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for item in value[:200]:
+            text = _trim(str(item))
+            if text:
+                cleaned.append(text[:500])
+        return cleaned
 
     @field_validator("policy_mode", mode="before")
     @classmethod
@@ -339,4 +358,9 @@ class CursorSdkRunPersistResponse(BaseModel):
     model_used: str | None = None
     status: str
     sdk_run_id: str | None = None
+    workspace_kind: str | None = None
+    changed_files: list[str] = Field(default_factory=list)
+    diff_fingerprint: str | None = None
+    validation_command: str | None = None
+    validation_status: str | None = None
 

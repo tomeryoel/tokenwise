@@ -51,6 +51,7 @@ export interface PlaygroundSession {
   cursorRecommendationReasons: string[];
   cursorModels: Array<{ id: string; display_name: string }>;
   cursorBridgeStatus: string | null;
+  cursorValidationCommand: string;
   cursorAgentResult: {
     answer: string | null;
     status: string;
@@ -63,6 +64,18 @@ export interface PlaygroundSession {
     result_fingerprint: string | null;
     claim: string;
     error: string | null;
+    workspace_cwd: string | null;
+    workspace_kind: string | null;
+    sdk_sandbox_enabled: boolean | null;
+    changed_files: string[];
+    diff_text: string | null;
+    diff_fingerprint: string | null;
+    diff_truncated: boolean;
+    validation_command: string | null;
+    validation_status: string | null;
+    validation_exit_code: number | null;
+    validation_stdout: string | null;
+    validation_stderr: string | null;
   } | null;
 }
 
@@ -88,5 +101,6 @@ export const initialPlaygroundSession = (): PlaygroundSession => ({
   cursorRecommendationReasons: [],
   cursorModels: [],
   cursorBridgeStatus: null,
+  cursorValidationCommand: "python -m pytest",
   cursorAgentResult: null,
 });

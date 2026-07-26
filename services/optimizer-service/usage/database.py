@@ -203,13 +203,8 @@ CREATE TABLE IF NOT EXISTS cursor_ingest_events (
     FOREIGN KEY (attempt_id) REFERENCES coding_attempts(attempt_id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_coding_sessions_external
-    ON coding_sessions(external_source, external_session_id)
-    WHERE external_session_id IS NOT NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_coding_attempts_external
-    ON coding_attempts(external_attempt_id)
-    WHERE external_attempt_id IS NOT NULL;
+-- External-id unique indexes are created by _migrate_coding_external_ids so
+-- existing databases receive the columns before the indexes are applied.
 
 CREATE TABLE IF NOT EXISTS cursor_sdk_runs (
     run_key TEXT PRIMARY KEY,
@@ -224,6 +219,11 @@ CREATE TABLE IF NOT EXISTS cursor_sdk_runs (
     result_fingerprint TEXT,
     error_detail TEXT,
     duration_ms INTEGER,
+    workspace_kind TEXT,
+    changed_files_json TEXT,
+    diff_fingerprint TEXT,
+    validation_command TEXT,
+    validation_status TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (session_id) REFERENCES coding_sessions(session_id) ON DELETE CASCADE,
     FOREIGN KEY (attempt_id) REFERENCES coding_attempts(attempt_id) ON DELETE CASCADE
@@ -340,6 +340,26 @@ def _migrate_cursor_sdk_runs(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA user_version = 6")
 
 
+def _migrate_cursor_sdk_coding_run_metadata(conn: sqlite3.Connection) -> None:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version >= 7:
+        return
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(cursor_sdk_runs)").fetchall()
+    }
+    additions = {
+        "workspace_kind": "TEXT",
+        "changed_files_json": "TEXT",
+        "diff_fingerprint": "TEXT",
+        "validation_command": "TEXT",
+        "validation_status": "TEXT",
+    }
+    for name, decl in additions.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE cursor_sdk_runs ADD COLUMN {name} {decl}")
+    conn.execute("PRAGMA user_version = 7")
+
+
 def get_db_path() -> str:
     return os.environ.get("USAGE_DB_PATH", DEFAULT_DB_PATH)
 
@@ -352,6 +372,7 @@ def init_db(db_path: str | None = None) -> None:
         _migrate_requests(conn)
         _migrate_coding_external_ids(conn)
         _migrate_cursor_sdk_runs(conn)
+        _migrate_cursor_sdk_coding_run_metadata(conn)
         conn.commit()
 
 

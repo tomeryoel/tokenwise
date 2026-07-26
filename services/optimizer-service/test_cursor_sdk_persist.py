@@ -35,6 +35,11 @@ def test_persist_cursor_sdk_run_fingerprints_result(tmp_db):
         result_text="Added /health and a unit test.",
         duration_ms=1200,
         workflow="agent",
+        workspace_kind="disposable_sandbox",
+        changed_files=["hello.py"],
+        diff_fingerprint="abc123",
+        validation_command="python -m pytest",
+        validation_status="passed",
     )
     first = persist_cursor_sdk_run(req, db_path=tmp_db)
     second = persist_cursor_sdk_run(req, db_path=tmp_db)
@@ -43,5 +48,8 @@ def test_persist_cursor_sdk_run_fingerprints_result(tmp_db):
     assert first.result_fingerprint
     assert first.attempt_id
     assert first.session_id
+    assert first.changed_files == ["hello.py"]
+    assert first.diff_fingerprint == "abc123"
+    assert first.validation_status == "passed"
     assert second.attempt_id == first.attempt_id
     assert second.run_key == first.run_key

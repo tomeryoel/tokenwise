@@ -383,10 +383,23 @@ export interface CursorAgentRunResult {
   attempt_id: string | null;
   result_fingerprint: string | null;
   provider: string;
+  workspace_cwd?: string | null;
+  workspace_kind?: string | null;
+  sdk_sandbox_enabled?: boolean | null;
+  changed_files?: string[];
+  diff_text?: string | null;
+  diff_fingerprint?: string | null;
+  diff_truncated?: boolean;
+  validation_command?: string | null;
+  validation_status?: string | null;
+  validation_exit_code?: number | null;
+  validation_stdout?: string | null;
+  validation_stderr?: string | null;
+  persist_raw_diff?: boolean;
 }
 
 export async function fetchCursorAgentHealth(): Promise<CursorAgentHealth> {
-  return apiRequest<CursorAgentHealth>(CURSOR_AGENT_HEALTH_URL);
+  return fetchJson<CursorAgentHealth>(CURSOR_AGENT_HEALTH_URL);
 }
 
 export async function fetchCursorAgentModels(): Promise<{
@@ -395,7 +408,7 @@ export async function fetchCursorAgentModels(): Promise<{
   source: string;
   detail?: string;
 }> {
-  return apiRequest(CURSOR_AGENT_MODELS_URL);
+  return fetchJson(CURSOR_AGENT_MODELS_URL);
 }
 
 export async function recommendCursorRoute(payload: {
@@ -404,7 +417,7 @@ export async function recommendCursorRoute(payload: {
   complexity_level?: "low" | "medium" | "high";
   prefer_auto?: boolean;
 }): Promise<CursorRouteRecommendation> {
-  return apiRequest<CursorRouteRecommendation>(CURSOR_ROUTE_RECOMMEND_URL, {
+  return fetchJson<CursorRouteRecommendation>(CURSOR_ROUTE_RECOMMEND_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -417,8 +430,10 @@ export async function runCursorAgent(payload: {
   recommended_model?: string | null;
   coding_session_id?: string | null;
   workflow?: WorkflowType;
+  validation_command?: string | null;
+  include_diff_in_response?: boolean;
 }): Promise<CursorAgentRunResult> {
-  return apiRequest<CursorAgentRunResult>(CURSOR_AGENT_RUN_URL, {
+  return fetchJson<CursorAgentRunResult>(CURSOR_AGENT_RUN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
