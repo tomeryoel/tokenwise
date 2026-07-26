@@ -84,8 +84,10 @@ preview, document ingestion + approval, MVP scope, and commercial roadmap) is sp
 ```
 tokenwise/
   docker-compose.yml          # core application stack
+  docker-compose.web.yml      # public HTTPS deployment override (Caddy + Ollama)
   docker-compose.langfuse.yml # optional self-hosted Langfuse override
   .env.example                # local ports and provider configuration
+  .env.web.example            # public web deployment configuration template
   .env.langfuse.example       # placeholder-only Langfuse configuration
   momihelm / momihelm.ps1     # lifecycle commands for macOS/Linux and Windows
   README.md
@@ -161,6 +163,12 @@ Only the frontend is published to the host at `127.0.0.1:5173`. n8n, the
 gateway, and all four Python services are private inside the Docker network.
 For HTTPS deployment, set `MOMIHELM_COOKIE_SECURE=true` and configure the exact
 public origin in `MOMIHELM_ALLOWED_ORIGINS`.
+
+For a public internet deployment with automatic HTTPS, see
+[docs/web-deployment.md](docs/web-deployment.md) and use `./momihelm web-start`.
+
+For Cursor IDE integration, see [docs/cursor-connector.md](docs/cursor-connector.md)
+and run `./momihelm cursor-sync`.
 
 ### Lifecycle commands
 

@@ -1,0 +1,62 @@
+# Public web deployment override for MomiHelm.
+# Usage: ./momihelm web-start
+#
+# Adds Caddy (HTTPS or HTTP), keeps backend services private, and optionally
+# runs Ollama inside Compose when OpenAI is disabled.
+
+services:
+  ollama:
+    profiles: ["web-ollama"]
+    image: ollama/ollama:latest
+    expose:
+      - "11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  optimizer-service:
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+    depends_on:
+      ollama:
+        condition: service_healthy
+        required: false
+    extra_hosts: !override []
+
+  frontend:
+    ports: !override []
+
+  caddy:
+    image: caddy:2.8-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      - MOMIHELM_PUBLIC_DOMAIN=${MOMIHELM_PUBLIC_DOMAIN:?Set MOMIHELM_PUBLIC_DOMAIN in .env}
+      - MOMIHELM_ACME_EMAIL=${MOMIHELM_ACME_EMAIL:-}
+    volumes:
+      - ${MOMIHELM_CADDYFILE:-./deploy/Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://frontend:5173/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  caddy_data:
+  caddy_config:

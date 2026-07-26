@@ -52,6 +52,8 @@ SESSION_TTL_SECONDS = int(
     float(os.environ.get("MOMIHELM_SESSION_TTL_HOURS", "12")) * 3600
 )
 COOKIE_SECURE = os.environ.get("MOMIHELM_COOKIE_SECURE", "false").lower() == "true"
+CONNECTOR_TOKEN = os.environ.get("MOMIHELM_CONNECTOR_TOKEN", "").strip()
+CONNECTOR_USER_EMAIL = os.environ.get("MOMIHELM_CONNECTOR_USER_EMAIL", "").strip()
 ALLOWED_ORIGINS = {
     origin.strip()
     for origin in os.environ.get(
@@ -194,6 +196,32 @@ class VerificationCreateRequest(BaseModel):
         return " ".join(value.split()) if value else None
 
 
+class CursorBubbleIngestRequest(BaseModel):
+    external_bubble_id: str = Field(min_length=1, max_length=200)
+    model: str | None = Field(default=None, max_length=200)
+    workflow: Literal["direct", "plan", "agent", "debug", "review", "unknown"] = "unknown"
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    latency_ms: int = Field(default=0, ge=0)
+    created_at: str | None = Field(default=None, max_length=80)
+
+
+class CursorComposerIngestRequest(BaseModel):
+    external_composer_id: str = Field(min_length=1, max_length=200)
+    title: str | None = Field(default=None, max_length=200)
+    objective: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    workflow: Literal["direct", "plan", "agent", "debug", "review", "unknown"] = "unknown"
+    workspace_path: str | None = Field(default=None, max_length=500)
+    cursor_status: str | None = Field(default=None, max_length=80)
+    bubbles: list[CursorBubbleIngestRequest] = Field(default_factory=list)
+
+
+class CursorIngestGatewayRequest(BaseModel):
+    composers: list[CursorComposerIngestRequest] = Field(default_factory=list)
+    discovered_count: int = Field(default=0, ge=0)
+    selected_count: int = Field(default=0, ge=0)
+
+
 class CodingContextInput(BaseModel):
     primary_language: str | None = Field(default=None, max_length=80)
     repository_size: Literal["small", "medium", "large", "unknown"] = "unknown"
@@ -315,7 +343,20 @@ def require_user(request: Request) -> Principal:
     return principal
 
 
+def require_connector_user(request: Request) -> Principal:
+    token = request.headers.get("X-MomiHelm-Connector-Token", "").strip()
+    if not CONNECTOR_TOKEN or not CONNECTOR_USER_EMAIL:
+        raise HTTPException(status_code=503, detail="connector_not_configured")
+    if not token or not secrets.compare_digest(token, CONNECTOR_TOKEN):
+        raise HTTPException(status_code=401, detail="connector_authentication_required")
+    principal = get_user_by_email(CONNECTOR_USER_EMAIL)
+    if principal is None:
+        raise HTTPException(status_code=503, detail="connector_user_not_configured")
+    return principal
+
+
 CurrentUser = Annotated[Principal, Depends(require_user)]
+ConnectorUser = Annotated[Principal, Depends(require_connector_user)]
 
 
 def require_manager(user: CurrentUser) -> Principal:
@@ -948,4 +989,50 @@ async def get_coding_session_evaluation(session_id: str, user: CurrentUser):
         "GET",
         f"/coding/sessions/{session_id}/evaluation",
         params=params,
+    )
+
+
+@app.post("/connectors/cursor/ingest", status_code=201)
+async def ingest_cursor_composers(
+    payload: CursorIngestGatewayRequest,
+    user: ConnectorUser,
+):
+    trusted_payload = payload.model_dump()
+    trusted_payload.update(
+        {
+            "organization_id": user.organization_id,
+            "user_id": user.id,
+            "dept_id": user.department_id,
+            "policy_mode": user.policy_mode,
+        }
+    )
+    return await _optimizer_request(
+        "POST",
+        "/connectors/cursor/ingest",
+        payload=trusted_payload,
+    )
+
+
+class CursorRouteGatewayRequest(BaseModel):
+    objective: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    task_type: str = Field(default="unknown", max_length=80)
+    complexity_level: Literal["low", "medium", "high"] = "medium"
+    workflow: Literal["direct", "plan", "agent", "debug", "review", "unknown"] = "unknown"
+    requested_model: str | None = Field(default=None, max_length=200)
+    prefer_auto: bool = False
+
+
+@app.get("/cursor/models")
+async def list_cursor_models(_user: CurrentUser):
+    return await _optimizer_request("GET", "/cursor/models")
+
+
+@app.post("/cursor/route/recommend")
+async def recommend_cursor_route(payload: CursorRouteGatewayRequest, user: CurrentUser):
+    trusted_payload = payload.model_dump()
+    trusted_payload["policy_mode"] = user.policy_mode
+    return await _optimizer_request(
+        "POST",
+        "/cursor/route/recommend",
+        payload=trusted_payload,
     )

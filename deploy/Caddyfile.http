@@ -1,0 +1,7 @@
+# HTTP-only fallback for demos without a domain or TLS certificate.
+# Set MOMIHELM_WEB_TLS=false and MOMIHELM_COOKIE_SECURE=false in .env.
+
+:80 {
+	encode gzip
+	reverse_proxy frontend:5173
+}

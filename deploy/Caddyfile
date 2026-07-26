@@ -1,0 +1,15 @@
+# Public HTTPS entrypoint for MomiHelm web deployment.
+# Set MOMIHELM_PUBLIC_DOMAIN and MOMIHELM_ACME_EMAIL in .env before starting.
+
+{$MOMIHELM_PUBLIC_DOMAIN} {
+	email {$MOMIHELM_ACME_EMAIL}
+
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		-X-Powered-By
+	}
+
+	reverse_proxy frontend:5173
+}

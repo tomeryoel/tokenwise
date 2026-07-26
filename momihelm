@@ -139,6 +139,190 @@ open_frontend() {
     fi
 }
 
+web_profiles() {
+    if [ "${ENABLE_OPENAI_PROVIDER:-false}" = "true" ]; then
+        printf '%s' ""
+    else
+        printf '%s' "web-ollama"
+    fi
+}
+
+web_compose() {
+    profile=$(web_profiles)
+    if [ -n "$profile" ]; then
+        COMPOSE_PROFILES="$profile" docker compose -f docker-compose.yml -f docker-compose.web.yml "$@"
+    else
+        docker compose -f docker-compose.yml -f docker-compose.web.yml "$@"
+    fi
+}
+
+prepare_web_caddy() {
+    if [ "${MOMIHELM_WEB_TLS:-true}" = "true" ]; then
+        MOMIHELM_CADDYFILE=./deploy/Caddyfile
+    else
+        MOMIHELM_CADDYFILE=./deploy/Caddyfile.http
+    fi
+    export MOMIHELM_CADDYFILE
+}
+
+check_web_config() {
+    tls=${MOMIHELM_WEB_TLS:-true}
+    if [ "$tls" = "true" ]; then
+        [ -n "${MOMIHELM_PUBLIC_DOMAIN:-}" ] ||
+            fail "Set MOMIHELM_PUBLIC_DOMAIN in .env (for example app.example.com)."
+        [ -n "${MOMIHELM_ACME_EMAIL:-}" ] ||
+            fail "Set MOMIHELM_ACME_EMAIL in .env for Let's Encrypt certificates."
+        [ "${MOMIHELM_COOKIE_SECURE:-false}" = "true" ] ||
+            fail "Set MOMIHELM_COOKIE_SECURE=true when MOMIHELM_WEB_TLS=true."
+        expected_origin="https://${MOMIHELM_PUBLIC_DOMAIN}"
+    else
+        expected_origin=${MOMIHELM_PUBLIC_URL:-}
+        [ -n "$expected_origin" ] ||
+            fail "Set MOMIHELM_PUBLIC_URL in .env (for example http://203.0.113.10)."
+        [ "${MOMIHELM_COOKIE_SECURE:-false}" = "false" ] ||
+            say "Warning: HTTP mode should keep MOMIHELM_COOKIE_SECURE=false."
+    fi
+
+    allowed=${MOMIHELM_ALLOWED_ORIGINS:-}
+    [ -n "$allowed" ] ||
+        fail "Set MOMIHELM_ALLOWED_ORIGINS=$expected_origin in .env."
+    case ",$allowed," in
+        *,"$expected_origin",*) ;;
+        *)
+            fail "MOMIHELM_ALLOWED_ORIGINS must include $expected_origin."
+            ;;
+    esac
+    say "Web config: public origin $expected_origin"
+}
+
+check_web_provider() {
+    if [ "${ENABLE_OPENAI_PROVIDER:-false}" = "true" ]; then
+        [ -n "${OPENAI_API_KEY:-}" ] ||
+            fail "ENABLE_OPENAI_PROVIDER=true but OPENAI_API_KEY is empty in .env."
+        say "Web provider: OpenAI."
+        return 0
+    fi
+
+    say "Web provider: bundled Ollama container."
+    say "Ensure the server has enough disk and RAM for ${OLLAMA_LOCAL_MODEL:-llama3.1:latest}."
+}
+
+ensure_ollama_model() {
+    model=${OLLAMA_LOCAL_MODEL:-llama3.1:latest}
+    say "Waiting for the Ollama container..."
+    attempts=0
+    while [ "$attempts" -lt 60 ]; do
+        if web_compose exec -T ollama ollama list >/dev/null 2>&1; then
+            break
+        fi
+        attempts=$((attempts + 1))
+        sleep 2
+    done
+
+    if web_compose exec -T ollama ollama list 2>/dev/null | grep -F "$model" >/dev/null 2>&1; then
+        say "Ollama model $model is already present."
+        return 0
+    fi
+
+    say "Pulling $model into the Ollama container (approximately 4.6 GB)..."
+    web_compose exec -T ollama ollama pull "$model"
+}
+
+wait_for_web() {
+    public_url=${MOMIHELM_PUBLIC_URL:-}
+    if [ -z "$public_url" ] && [ "${MOMIHELM_WEB_TLS:-true}" = "true" ]; then
+        public_url="https://${MOMIHELM_PUBLIC_DOMAIN}"
+    fi
+
+    attempts=0
+    while [ "$attempts" -lt 90 ]; do
+        if web_compose exec -T frontend wget -q -O - http://127.0.0.1:5173/healthz >/dev/null 2>&1; then
+            say "MomiHelm web stack is ready."
+            say "Public URL: ${public_url:-unknown}"
+            if [ "${MOMIHELM_WEB_TLS:-true}" = "true" ]; then
+                say "DNS for ${MOMIHELM_PUBLIC_DOMAIN} must already point at this server."
+                say "Caddy will request Let's Encrypt certificates on first HTTPS visit."
+            fi
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 3
+    done
+
+    web_compose ps
+    fail "MomiHelm web stack did not become ready in time. Run: ./momihelm web-logs"
+}
+
+web_doctor() {
+    if [ ! -f "$ENV_FILE" ]; then
+        fail "Create .env from .env.web.example first: cp .env.web.example .env"
+    fi
+    load_env
+    require_docker
+    warn_disk_space
+    check_web_config
+    check_web_provider
+    prepare_web_caddy
+    web_compose config --quiet
+    say "Configuration check: Docker Compose web stack is valid."
+    say "MomiHelm web doctor passed."
+}
+
+web_start() {
+    load_env
+    require_docker
+    warn_disk_space
+    check_web_config
+    check_web_provider
+    prepare_web_caddy
+
+    web_compose stop frontend gateway-service n8n caddy >/dev/null 2>&1 || true
+    web_compose up -d --build
+
+    if [ "${ENABLE_OPENAI_PROVIDER:-false}" != "true" ]; then
+        ensure_ollama_model
+    fi
+
+    wait_for_web
+    web_compose ps
+}
+
+web_stop() {
+    require_docker
+    load_env
+    prepare_web_caddy
+    web_compose down
+    say "MomiHelm web stack stopped. Persistent data was preserved."
+}
+
+web_status() {
+    require_docker
+    load_env
+    prepare_web_caddy
+    web_compose ps
+}
+
+web_smoke() {
+    require_docker
+    load_env
+    prepare_web_caddy
+    web_compose --profile tools run --rm --no-deps release-smoke
+}
+
+web_logs() {
+    require_docker
+    load_env
+    prepare_web_caddy
+    exec web_compose logs --tail=100 -f
+}
+
+cursor_sync() {
+    load_env
+    command -v python3 >/dev/null 2>&1 ||
+        fail "python3 is required for the Cursor connector."
+    PYTHONPATH="$ROOT_DIR" exec python3 -m connectors.cursor sync "$@"
+}
+
 doctor() {
     load_env
     require_docker
@@ -181,14 +365,30 @@ smoke() {
 
 show_help() {
     cat <<'EOF'
-MomiHelm local commands
+MomiHelm commands
 
-  ./momihelm doctor   Check Docker, provider, model, and configuration
-  ./momihelm start    Build, start, initialize workflows, and open MomiHelm
-  ./momihelm status   Show service and health status
-  ./momihelm logs     Follow service logs
-  ./momihelm smoke    Run the end-to-end release smoke test
-  ./momihelm stop     Stop services while preserving data
+Local (loopback):
+  ./momihelm doctor        Check Docker, provider, model, and configuration
+  ./momihelm start         Build, start, initialize workflows, and open MomiHelm
+  ./momihelm status        Show service and health status
+  ./momihelm logs          Follow service logs
+  ./momihelm smoke         Run the end-to-end release smoke test
+  ./momihelm stop          Stop services while preserving data
+
+Public web (HTTPS on a server):
+  ./momihelm web-doctor    Validate .env.web settings, domain, and TLS config
+  ./momihelm web-start     Start the public stack with Caddy + optional Ollama
+  ./momihelm web-status    Show web stack status
+  ./momihelm web-logs      Follow web stack logs
+  ./momihelm web-smoke     Run the release smoke test against the web stack
+  ./momihelm web-stop      Stop the web stack while preserving data
+
+Cursor connector:
+  ./momihelm cursor-sync   Read local Cursor state.vscdb and ingest into MomiHelm
+                           Pass --dry-run to inspect without posting.
+
+See docs/web-deployment.md for server setup.
+See docs/cursor-connector.md for Cursor integration.
 EOF
 }
 
@@ -203,6 +403,16 @@ case "$command" in
         ;;
     smoke) smoke ;;
     stop) stop ;;
+    web-doctor) web_doctor ;;
+    web-start) web_start ;;
+    web-status) web_status ;;
+    web-logs) web_logs ;;
+    web-smoke) web_smoke ;;
+    web-stop) web_stop ;;
+    cursor-sync)
+        shift
+        cursor_sync "$@"
+        ;;
     help|-h|--help) show_help ;;
     *) fail "Unknown command '$command'. Run ./momihelm help." ;;
 esac

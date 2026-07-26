@@ -219,3 +219,68 @@ class CodingSessionDetail(CodingSessionSummary):
 class CodingSessionListResponse(BaseModel):
     items: list[CodingSessionSummary]
     count: int
+
+
+class CursorBubbleIngest(BaseModel):
+    external_bubble_id: str = Field(min_length=1, max_length=200)
+    model: str | None = Field(default=None, max_length=200)
+    workflow: WorkflowType = "unknown"
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    latency_ms: int = Field(default=0, ge=0)
+    created_at: str | None = Field(default=None, max_length=80)
+
+    @field_validator("external_bubble_id", "model", "created_at")
+    @classmethod
+    def trim_cursor_text(cls, value: str | None) -> str | None:
+        return _trim(value) if value else None
+
+
+class CursorComposerIngest(BaseModel):
+    external_composer_id: str = Field(min_length=1, max_length=200)
+    title: str | None = Field(default=None, max_length=200)
+    objective: str = Field(min_length=1, max_length=100_000)
+    workflow: WorkflowType = "unknown"
+    workspace_path: str | None = Field(default=None, max_length=500)
+    cursor_status: str | None = Field(default=None, max_length=80)
+    bubbles: list[CursorBubbleIngest] = Field(default_factory=list)
+
+    @field_validator("external_composer_id", "title", "objective", "workspace_path", "cursor_status")
+    @classmethod
+    def trim_composer_text(cls, value: str | None) -> str | None:
+        return _trim(value) if isinstance(value, str) else value
+
+
+class CursorIngestRequest(BaseModel):
+    organization_id: str = Field(min_length=1, max_length=200)
+    user_id: str = Field(min_length=1, max_length=200)
+    dept_id: str = Field(min_length=1, max_length=200)
+    policy_mode: PolicyMode = "balanced"
+    composers: list[CursorComposerIngest] = Field(default_factory=list)
+    discovered_count: int = Field(default=0, ge=0)
+    selected_count: int = Field(default=0, ge=0)
+
+    @field_validator("organization_id", "user_id", "dept_id")
+    @classmethod
+    def trim_scope(cls, value: str) -> str:
+        return _trim(value)
+
+    @field_validator("policy_mode", mode="before")
+    @classmethod
+    def normalize_cursor_policy(cls, value: object) -> str:
+        return canonicalize_policy_mode(value)
+
+
+class CursorComposerLink(BaseModel):
+    external_composer_id: str
+    session_id: str
+
+
+class CursorIngestResponse(BaseModel):
+    discovered_count: int
+    selected_count: int
+    sessions_created: int
+    sessions_updated: int
+    attempts_created: int
+    attempts_skipped: int
+    composer_links: list[CursorComposerLink] = Field(default_factory=list)
