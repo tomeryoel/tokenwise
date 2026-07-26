@@ -3,6 +3,7 @@ import type {
   PolicyMode,
 } from "../types";
 import { PRODUCT_NAME } from "../brand";
+import RoutingTransparencyBlock from "./RoutingTransparencyBlock";
 
 interface Props {
   receipt: DecisionReceiptData;
@@ -117,6 +118,8 @@ export default function DecisionReceipt({
           tone={requestStatus.tone}
         />
       </div>
+
+      <RoutingTransparencyBlock routing={receipt.routing} />
 
       <div className="decision-highlights">
         <Highlight

@@ -20,6 +20,8 @@ import {
 import { PRODUCT_NAME } from "../brand";
 import DecisionReceipt from "../components/DecisionReceipt";
 import ModelFitReceipt from "../components/ModelFitReceipt";
+import RoutingTransparencyBlock from "../components/RoutingTransparencyBlock";
+import { mergeCursorRouting } from "../routingTransparency";
 import VerificationPanel, {
   type VerificationSubmission,
 } from "../components/VerificationPanel";
@@ -92,6 +94,7 @@ export default function Playground({
     cursorPathReasons,
     cursorRecommendationBasis,
     cursorRecommendationConfidence,
+    cursorRoutingRecommendation,
     cursorModels,
     cursorBridgeStatus,
     cursorValidationCommand,
@@ -212,6 +215,7 @@ export default function Playground({
           typeof recommendation.confidence === "number"
             ? recommendation.confidence
             : null,
+        cursorRoutingRecommendation: recommendation.routing ?? null,
         cursorSelectedModel:
           current.cursorSelectedModel || recommendation.recommended_model_id,
       }));
@@ -256,6 +260,12 @@ export default function Playground({
         loading: false,
         submittedPrompt: requestPrompt,
         cursorAgentResult: {
+          // The recommendation the user saw before the run stays authoritative
+          // for the recommended stage; the server supplies the run facts.
+          routing: mergeCursorRouting(
+            current.cursorRoutingRecommendation,
+            response.receipt?.routing ?? null,
+          ),
           answer: response.answer,
           status: response.status,
           model_used: response.model_used,
@@ -839,6 +849,12 @@ export default function Playground({
               </div>
             )}
 
+            <RoutingTransparencyBlock
+              routing={cursorRoutingRecommendation}
+              title="Routing transparency (before the run)"
+              caption="Selected and executed stages are filled in after the Cursor Agent run."
+            />
+
             <div className="composer-submit">
               <button
                 type="button"
@@ -1104,6 +1120,12 @@ export default function Playground({
               </small>
             </footer>
           </article>
+
+          <RoutingTransparencyBlock
+            routing={cursorAgentResult.routing}
+            title="Routing transparency (this run)"
+            caption="Recommended before the run, selected in the composer, executed by the Cursor SDK."
+          />
         </section>
       )}
 

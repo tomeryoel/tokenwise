@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from pydantic import BaseModel, Field
 
 from cursor.models import CursorModel, get_cursor_model, load_cursor_models, normalize_cursor_model_id
 from policy import PolicyMode
+from routing_receipt import (
+    ASSUMPTION_CODES,
+    REASON_CODES,
+    RoutingAlternative,
+    RoutingConfidence,
+    RoutingCostEfficiency,
+    RoutingDecisionReceipt,
+    RoutingTarget,
+    dedupe,
+    mismatch_reason_codes,
+    tier_rank,
+)
 
 
 ComplexityLevel = Literal["low", "medium", "high"]
@@ -49,6 +61,9 @@ class CursorRouteRecommendation(BaseModel):
     path_reasons: list[str] = Field(default_factory=list)
     recommendation_basis: Literal["heuristic", "configured", "evidence"] = "heuristic"
     confidence: float = Field(default=0.55, ge=0.0, le=1.0)
+    # RoutingDecisionReceipt v1 recommendation stage. `selected` and `executed`
+    # stay empty here; the gateway fills them from the actual SDK run.
+    routing: RoutingDecisionReceipt = Field(default_factory=RoutingDecisionReceipt)
 
 
 def _score_model(
@@ -113,9 +128,15 @@ def _eligible_models(workflow: WorkflowType) -> list[CursorModel]:
     return models
 
 
-def _recommend_execution_path(
-    req: CursorRouteRequest,
-) -> tuple[Literal["local_ollama", "cursor_sdk"], list[str], float]:
+class PathAdvice(NamedTuple):
+    path: Literal["local_ollama", "cursor_sdk"]
+    reasons: list[str]
+    confidence: float
+    reason_codes: list[str]
+    assumptions: list[str]
+
+
+def _recommend_execution_path(req: CursorRouteRequest) -> PathAdvice:
     """Heuristic path advice: local Ollama playground vs Cursor SDK coding run.
 
     Does not claim Ollama can edit repositories. Local path means existing
@@ -171,6 +192,22 @@ def _recommend_execution_path(
         "feature_implementation",
         "refactor",
     }
+    validation_signal = any(
+        signal in text for signal in ("pytest", "run tests", "unit test", "npm test")
+    )
+    multi_file_signal = any(
+        signal in text for signal in ("multi-file", "across files", "repository")
+    )
+
+    edit_codes = ["repo_edit_required", "diff_capture_required"]
+    if validation_signal:
+        edit_codes.append("validation_required")
+    if multi_file_signal:
+        edit_codes.append("multi_file_reasoning")
+    if high_risk:
+        edit_codes.append("higher_risk_change")
+    edit_assumptions = ["task_requires_repository_edits"]
+    simple_assumptions = ["no_repository_edit_detected"]
 
     if needs_agent_workflow or edit_hits >= 2 or (edit_hits >= 1 and high_risk):
         path_reasons.append(
@@ -178,7 +215,7 @@ def _recommend_execution_path(
         )
         if high_risk:
             path_reasons.append("task type/complexity suggests stronger coding agent")
-        return "cursor_sdk", path_reasons, 0.7
+        return PathAdvice("cursor_sdk", path_reasons, 0.7, edit_codes, edit_assumptions)
 
     if (
         req.complexity_level == "low"
@@ -192,17 +229,34 @@ def _recommend_execution_path(
         path_reasons.append(
             "use Quick Question or Coding Session; Cursor SDK not required"
         )
-        return "local_ollama", path_reasons, 0.65
+        return PathAdvice(
+            "local_ollama",
+            path_reasons,
+            0.65,
+            [
+                "simple_task",
+                "no_repo_edit_required",
+                "lightweight_planning",
+                "cost_saving_available",
+            ],
+            simple_assumptions,
+        )
 
     if edit_hits == 0 and simple_hits >= 1 and req.complexity_level != "high":
         path_reasons.append(
             "explanation/summary-style objective without edit signals → prefer local Ollama"
         )
-        return "local_ollama", path_reasons, 0.6
+        return PathAdvice(
+            "local_ollama",
+            path_reasons,
+            0.6,
+            ["explanation_only", "no_repo_edit_required", "cost_saving_available"],
+            simple_assumptions,
+        )
 
     if edit_hits >= 1:
         path_reasons.append("edit-oriented wording → Cursor SDK coding run")
-        return "cursor_sdk", path_reasons, 0.6
+        return PathAdvice("cursor_sdk", path_reasons, 0.6, edit_codes, edit_assumptions)
 
     # Default for Cursor Agent mode callers: keep SDK, but note uncertainty.
     path_reasons.append(
@@ -211,27 +265,126 @@ def _recommend_execution_path(
     path_reasons.append(
         "for simple Q&A, switch to Quick Question (local Ollama) to avoid paid Cursor spend"
     )
-    return "cursor_sdk", path_reasons, 0.45
+    return PathAdvice("cursor_sdk", path_reasons, 0.45, [], [])
+
+
+def _cursor_routing_receipt(
+    advice: PathAdvice,
+    *,
+    model_id: str | None,
+    model_tier: str | None,
+    alternatives: list[CursorRouteAlternative],
+    explicit_selection: bool,
+) -> RoutingDecisionReceipt:
+    """Describe the Cursor path/model advice as a v1 recommendation stage.
+
+    Static catalog + keyword heuristics only. When the recommended path is local
+    Ollama the local model is unknown here, so `model` stays null.
+    """
+    if advice.path == "local_ollama":
+        recommended = RoutingTarget(
+            path="local_ollama",
+            tier="local",
+            provider="ollama",
+        )
+    else:
+        recommended = RoutingTarget(
+            path="cursor_sdk",
+            tier=model_tier if model_tier in {"cheap", "balanced", "premium"} else None,
+            provider="cursor-sdk",
+            model=model_id,
+        )
+
+    routing_alternatives: list[RoutingAlternative] = []
+    if advice.path == "local_ollama":
+        # The local path is only recommended when no repository-edit signal was
+        # found, so a paid coding agent is not an applicable alternative here.
+        # Naming one would invent a justification the heuristics never made.
+        pass
+    else:
+        recommended_rank = tier_rank(recommended.tier)
+        for alternative in alternatives:
+            rank = tier_rank(alternative.momihelm_tier)
+            if rank is None or recommended_rank is None:
+                continue
+            kind = "cheaper" if rank < recommended_rank else "stronger" if rank > recommended_rank else None
+            if kind is None or any(item.kind == kind for item in routing_alternatives):
+                continue
+            routing_alternatives.append(
+                RoutingAlternative(
+                    kind=kind,
+                    target=RoutingTarget(
+                        path="cursor_sdk",
+                        tier=alternative.momihelm_tier,  # type: ignore[arg-type]
+                        provider="cursor-sdk",
+                        model=alternative.model_id,
+                    ),
+                    reason_codes=(
+                        ["cost_saving_available"] if kind == "cheaper" else ["higher_risk_change"]
+                    ),
+                )
+            )
+
+    if not routing_alternatives:
+        routing_alternatives.append(
+            RoutingAlternative(kind="unavailable", reason_codes=["no_applicable_alternative"])
+        )
+
+    assumptions = [
+        "no_historical_performance_data",
+        "static_model_catalog",
+        "heuristic_task_classification",
+        "cursor_bridge_health_unknown",
+        *advice.assumptions,
+    ]
+    return RoutingDecisionReceipt(
+        recommended=recommended,
+        basis="configured" if explicit_selection else "heuristic",
+        reason_codes=dedupe(list(advice.reason_codes), REASON_CODES),  # type: ignore[arg-type]
+        assumptions=dedupe(assumptions, ASSUMPTION_CODES),  # type: ignore[arg-type]
+        confidence=RoutingConfidence(value=advice.confidence),
+        alternatives=routing_alternatives,
+        cost_efficiency=RoutingCostEfficiency(
+            code=(
+                "local_capability_sufficient"
+                if advice.path == "local_ollama"
+                else "paid_execution_justified"
+            ),
+        ),
+    )
 
 
 def recommend_cursor_route(req: CursorRouteRequest) -> CursorRouteRecommendation:
-    recommended_path, path_reasons, path_confidence = _recommend_execution_path(req)
+    advice = _recommend_execution_path(req)
+    recommended_path, path_reasons, path_confidence = (
+        advice.path,
+        advice.reasons,
+        advice.confidence,
+    )
 
     requested = normalize_cursor_model_id(req.requested_model)
     if requested and requested != "auto" and not req.prefer_auto:
         model = get_cursor_model(requested)
         if model is not None:
+            explicit_alternatives = _alternatives(model.id, req)
             return CursorRouteRecommendation(
                 recommended_model_id=model.id,
                 recommended_display_name=model.display_name,
                 recommended_tier=model.momihelm_tier,
                 route_class=model.route_class,
                 reasons=[f"honoring explicit Cursor model selection: {model.display_name}"],
-                alternatives=_alternatives(model.id, req),
+                alternatives=explicit_alternatives,
                 recommended_path=recommended_path,
                 path_reasons=path_reasons,
                 recommendation_basis="heuristic",
                 confidence=path_confidence,
+                routing=_cursor_routing_receipt(
+                    advice,
+                    model_id=model.id,
+                    model_tier=model.momihelm_tier,
+                    alternatives=explicit_alternatives,
+                    explicit_selection=True,
+                ),
             )
 
     ranked: list[tuple[float, CursorModel, list[str]]] = []
@@ -258,6 +411,13 @@ def recommend_cursor_route(req: CursorRouteRequest) -> CursorRouteRecommendation
             path_reasons=path_reasons,
             recommendation_basis="heuristic",
             confidence=path_confidence,
+            routing=_cursor_routing_receipt(
+                advice,
+                model_id=fallback.id,
+                model_tier=fallback.momihelm_tier,
+                alternatives=[],
+                explicit_selection=False,
+            ),
         )
 
     best_score, best, best_reasons = ranked[0]
@@ -265,6 +425,7 @@ def recommend_cursor_route(req: CursorRouteRequest) -> CursorRouteRecommendation
 
     recommended_id = "auto" if req.prefer_auto else best.id
     recommended_display = "Auto" if req.prefer_auto else best.display_name
+    ranked_alternatives = _alternatives(best.id, req, ranked[1:4])
     recommendation = CursorRouteRecommendation(
         recommended_model_id=recommended_id,
         recommended_display_name=recommended_display,
@@ -278,17 +439,117 @@ def recommend_cursor_route(req: CursorRouteRequest) -> CursorRouteRecommendation
             if req.prefer_auto
             else best_reasons[:4]
         ),
-        alternatives=_alternatives(best.id, req, ranked[1:4]),
+        alternatives=ranked_alternatives,
         recommended_path=recommended_path,
         path_reasons=path_reasons,
         recommendation_basis="heuristic",
         confidence=path_confidence,
+        routing=_cursor_routing_receipt(
+            advice,
+            model_id=recommended_id,
+            model_tier=best.momihelm_tier,
+            alternatives=ranked_alternatives,
+            explicit_selection=False,
+        ),
     )
     if req.prefer_auto:
         recommendation.reasons.append(
             f"auto score leader: {best.display_name} ({best_score:.2f})"
         )
     return recommendation
+
+
+class CursorRunReceiptRequest(BaseModel):
+    """Facts about one executed Cursor SDK run, for routing transparency."""
+
+    objective: str = Field(min_length=1, max_length=100_000)
+    task_type: str = Field(default="unknown", max_length=80)
+    complexity_level: ComplexityLevel = "medium"
+    policy_mode: PolicyMode = "balanced"
+    workflow: WorkflowType = "agent"
+    selected_model: str | None = Field(default=None, max_length=200)
+    executed_model: str | None = Field(default=None, max_length=200)
+    validation_command_provided: bool = False
+    diff_requested: bool = False
+    bridge_reachable: bool = False
+    result_fingerprint: str | None = Field(default=None, max_length=128)
+    diff_fingerprint: str | None = Field(default=None, max_length=128)
+
+
+def _fingerprint(value: str | None) -> str | None:
+    """Accept digests only. Anything with whitespace is rejected as content."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or len(text) > 128 or any(char.isspace() for char in text):
+        return None
+    return text
+
+
+def _cursor_target(model_id: str | None) -> RoutingTarget:
+    identifier = (model_id or "").strip() or None
+    catalog_entry = get_cursor_model(identifier) if identifier else None
+    return RoutingTarget(
+        path="cursor_sdk",
+        tier=catalog_entry.momihelm_tier if catalog_entry else None,  # type: ignore[arg-type]
+        provider="cursor-sdk",
+        model=identifier,
+    )
+
+
+def build_cursor_run_receipt(req: CursorRunReceiptRequest) -> RoutingDecisionReceipt:
+    """Merge the server-side recommendation with observed SDK run facts.
+
+    The recommendation is recomputed here from the objective and organization
+    policy, so a client cannot claim a recommendation it never received.
+    """
+    recommendation = recommend_cursor_route(
+        CursorRouteRequest(
+            objective=req.objective,
+            task_type=req.task_type,
+            complexity_level=req.complexity_level,
+            policy_mode=req.policy_mode,
+            workflow=req.workflow,
+        )
+    )
+    receipt = recommendation.routing.model_copy(deep=True)
+    receipt.selected = _cursor_target(req.selected_model)
+    receipt.executed = _cursor_target(req.executed_model)
+    if receipt.executed.model is None:
+        # The SDK did not report a model; do not assume the selected one ran.
+        receipt.executed = RoutingTarget(path="cursor_sdk", provider="cursor-sdk")
+
+    codes = list(receipt.reason_codes)
+    if req.validation_command_provided:
+        codes.append("validation_required")
+    if req.diff_requested:
+        codes.append("diff_capture_required")
+    codes.extend(
+        mismatch_reason_codes(receipt.recommended, receipt.selected, receipt.executed)
+    )
+    receipt.reason_codes = dedupe(codes, REASON_CODES)  # type: ignore[assignment]
+
+    assumptions = [
+        code
+        for code in receipt.assumptions
+        if not (req.bridge_reachable and code == "cursor_bridge_health_unknown")
+    ]
+    if req.bridge_reachable:
+        assumptions.append("cursor_bridge_health_passed")
+    if req.validation_command_provided:
+        assumptions.append("validation_command_provided")
+    receipt.assumptions = dedupe(assumptions, ASSUMPTION_CODES)  # type: ignore[assignment]
+
+    if receipt.recommended.path == "local_ollama":
+        # Local would have been enough for this objective; the paid run was a
+        # user choice, not a MomiHelm recommendation.
+        receipt.cost_efficiency.code = "local_capability_sufficient"
+    else:
+        receipt.cost_efficiency.code = "paid_execution_justified"
+
+    receipt.fingerprints.result = _fingerprint(req.result_fingerprint)
+    receipt.fingerprints.diff = _fingerprint(req.diff_fingerprint)
+    return receipt
 
 
 def _alternatives(

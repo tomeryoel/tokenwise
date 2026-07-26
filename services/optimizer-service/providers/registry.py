@@ -100,6 +100,56 @@ def resolve_fallback(
     return None
 
 
+@dataclass
+class ResolutionFacts:
+    """Configuration-only view of how a tier would resolve.
+
+    Used for routing transparency. Reads the same tier->provider/model
+    configuration as `resolve_primary` and performs no execution, no network
+    call, and no health probe.
+    """
+
+    resolved_provider: str | None
+    resolved_model: str | None
+    resolved_tier: str | None
+    external_configured: bool
+    local_model_for_local_tier: str | None
+    stronger_tier: str | None
+    stronger_external_model: str | None
+
+
+def stronger_tier_for(tier: str) -> str | None:
+    order = ["local", "cheap", "balanced", "premium"]
+    normalized = (tier or "").lower()
+    if normalized in order:
+        index = order.index(normalized)
+        if index < len(order) - 1:
+            return order[index + 1]
+    return None
+
+
+def describe_resolution(requested_tier: str, privacy_enforced: bool) -> ResolutionFacts:
+    """Describe (never change) how `requested_tier` resolves right now."""
+    resolved = resolve_primary(requested_tier, privacy_enforced)
+    openai = OpenAIProvider()
+    stronger = stronger_tier_for(requested_tier)
+    return ResolutionFacts(
+        resolved_provider=(
+            resolved.provider_name if resolved.provider_name != "unsupported" else None
+        ),
+        resolved_model=resolved.model or None,
+        resolved_tier=resolved.executed_tier or None,
+        external_configured=openai.is_configured(),
+        local_model_for_local_tier=_ollama_model_for_tier("local") or None,
+        stronger_tier=stronger,
+        stronger_external_model=(
+            (_openai_model_for_tier(stronger) or None)
+            if stronger and openai.is_configured()
+            else None
+        ),
+    )
+
+
 def get_provider_instance(name: str, transport: httpx.AsyncBaseTransport | None = None):
     resolved_transport = transport if transport is not None else _test_transports.get(name)
     if name == "ollama":

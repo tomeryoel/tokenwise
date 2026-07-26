@@ -17,5 +17,8 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
+  // Tests run on the Node built-in runner (see src/*.test.ts) and are not part
+  // of the browser bundle or the production type check.
+  "exclude": ["src/**/*.test.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -1152,6 +1152,50 @@ async def cursor_agent_models(_user: CurrentUser):
     }
 
 
+async def _cursor_routing_receipt(
+    *,
+    payload: CursorAgentRunRequest,
+    user: Principal,
+    bridge_result: dict[str, Any],
+    result_fingerprint: object,
+) -> dict[str, Any] | None:
+    """Ask the optimizer for the RoutingDecisionReceipt v1 of this run.
+
+    The recommendation is recomputed server-side from the objective and the
+    organization policy mode, so the client cannot assert its own basis. A
+    missing receipt degrades to None and the UI renders the run without it.
+    """
+    response = await _optimizer_request(
+        "POST",
+        "/cursor/route/receipt",
+        payload={
+            "objective": payload.prompt,
+            "workflow": payload.workflow,
+            "policy_mode": user.policy_mode,
+            "selected_model": payload.selected_model,
+            "executed_model": bridge_result.get("model_used"),
+            "validation_command_provided": bool(
+                bridge_result.get("validation_command")
+                or payload.validation_command
+            ),
+            "diff_requested": bool(payload.include_diff_in_response),
+            "bridge_reachable": True,
+            "result_fingerprint": (
+                result_fingerprint if isinstance(result_fingerprint, str) else None
+            ),
+            "diff_fingerprint": (
+                bridge_result.get("diff_fingerprint")
+                if isinstance(bridge_result.get("diff_fingerprint"), str)
+                else None
+            ),
+        },
+    )
+    if response.status_code != 200:
+        return None
+    receipt = _payload_record(_response_payload(response))
+    return receipt
+
+
 @app.post("/cursor-agent/run")
 async def cursor_agent_run(payload: CursorAgentRunRequest, user: CurrentUser):
     bridge_result = await _bridge_request(
@@ -1206,8 +1250,18 @@ async def cursor_agent_run(payload: CursorAgentRunRequest, user: CurrentUser):
     if not isinstance(persisted, dict):
         persisted = {}
 
+    routing = await _cursor_routing_receipt(
+        payload=payload,
+        user=user,
+        bridge_result=bridge_result,
+        result_fingerprint=persisted.get("result_fingerprint"),
+    )
+
     # Return result + per-run diff to the authenticated caller only.
     return {
+        # Runtime-only routing transparency. Structured metadata only; nothing
+        # here is persisted.
+        "receipt": {"routing": routing} if routing is not None else None,
         "experimental": True,
         "claim": bridge_result.get("claim")
         or (
