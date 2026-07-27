@@ -59,7 +59,76 @@ export interface AuthState {
   user: AuthUser | null;
 }
 
+export type RoutingPath =
+  | "local_ollama"
+  | "cursor_sdk"
+  | "external_model"
+  | "local_service"
+  | "semantic_cache"
+  | "no_execution";
+export type RoutingTier =
+  | "local"
+  | "cheap"
+  | "balanced"
+  | "premium"
+  | "vision"
+  | "cache"
+  | "none";
+/** v1 never reports evidence_based. */
+export type RecommendationBasis = "heuristic" | "configured";
+export type RoutingAlternativeKind =
+  | "cheaper"
+  | "stronger"
+  | "safer"
+  | "unavailable"
+  | "blocked_by_policy";
+
+export interface RoutingTarget {
+  path?: RoutingPath | null;
+  tier?: RoutingTier | null;
+  provider?: string | null;
+  model?: string | null;
+}
+
+export interface RoutingAlternative {
+  kind: RoutingAlternativeKind;
+  target?: RoutingTarget | null;
+  reason_codes?: string[] | null;
+}
+
+export interface RoutingCostEfficiency {
+  code?: string | null;
+  estimated_baseline_cost_usd?: number | null;
+  estimated_selected_cost_usd?: number | null;
+  actual_executed_cost_usd?: number | null;
+  estimated_savings_usd?: number | null;
+}
+
+/** Runtime-only RoutingDecisionReceipt v1. Never persisted in this slice. */
+export interface RoutingDecisionReceipt {
+  version?: string | null;
+  recommended?: RoutingTarget | null;
+  selected?: RoutingTarget | null;
+  executed?: RoutingTarget | null;
+  basis?: RecommendationBasis | null;
+  reason_codes?: string[] | null;
+  assumptions?: string[] | null;
+  confidence?: {
+    value?: number | null;
+    calibration?: string | null;
+  } | null;
+  alternatives?: RoutingAlternative[] | null;
+  cost_efficiency?: RoutingCostEfficiency | null;
+  fingerprints?: {
+    prompt?: string | null;
+    result?: string | null;
+    diff?: string | null;
+  } | null;
+}
+
 export interface DecisionReceipt {
+  /** Absent on responses created before routing transparency shipped. */
+  routing?: RoutingDecisionReceipt | null;
   policy_mode?: PolicyMode | null;
   guardrail_status: string;
   cache_status: string;

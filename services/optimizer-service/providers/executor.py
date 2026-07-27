@@ -4,6 +4,8 @@ from providers.errors import ProviderErrorCode
 from providers.grounding import resolve_system_prompt
 from providers.registry import get_provider_instance, resolve_fallback, resolve_primary, _openai_model_for_tier
 from providers.schemas import ProviderAttempt, ProviderExecuteRequest, ProviderExecuteResponse
+from routing_receipt import RoutingTarget, cache_target, no_execution_target
+from routing_receipt import target as routing_target
 
 MAX_ACTUAL_EXECUTIONS = 2
 
@@ -98,8 +100,62 @@ def _validate_tier(req: ProviderExecuteRequest) -> ProviderExecuteResponse | Non
     return None
 
 
+def _annotate_routing_targets(
+    req: ProviderExecuteRequest,
+    response: ProviderExecuteResponse,
+) -> ProviderExecuteResponse:
+    """Describe which target was chosen and which one actually ran.
+
+    Pure reporting: derived from the response that provider selection already
+    produced, so no selection behaviour changes.
+    """
+    if response.error_code == ProviderErrorCode.EXECUTION_NOT_REQUIRED.value:
+        response.selected_target = cache_target()
+        response.executed_target = cache_target()
+        return response
+    if response.error_code == ProviderErrorCode.REQUEST_REJECTED.value:
+        response.selected_target = no_execution_target()
+        response.executed_target = no_execution_target()
+        return response
+    if response.error_code == ProviderErrorCode.VISION_NOT_SUPPORTED.value:
+        vision = RoutingTarget(path="local_service", tier="vision")
+        response.selected_target = vision
+        response.executed_target = vision
+        return response
+
+    executed_attempts = [attempt for attempt in response.attempts if attempt.executed]
+    if executed_attempts:
+        first = executed_attempts[0]
+        response.selected_target = routing_target(
+            tier=first.tier,
+            provider=first.provider,
+            model=first.model,
+        )
+    else:
+        response.selected_target = routing_target(tier=req.selected_tier)
+
+    if response.success:
+        response.executed_target = routing_target(
+            tier=response.executed_tier or req.selected_tier,
+            provider=response.provider,
+            model=response.model,
+        )
+    elif executed_attempts:
+        last = executed_attempts[-1]
+        response.executed_target = routing_target(
+            tier=last.tier,
+            provider=last.provider,
+            model=last.model,
+        )
+    return response
+
+
 async def execute_provider(req: ProviderExecuteRequest) -> ProviderExecuteResponse:
     """Run primary provider attempt, then at most one fallback."""
+    return _annotate_routing_targets(req, await _execute_provider(req))
+
+
+async def _execute_provider(req: ProviderExecuteRequest) -> ProviderExecuteResponse:
     validation = _validate_tier(req)
     if validation:
         return validation

@@ -891,6 +891,147 @@ select {
   line-height: 1.65;
 }
 
+.routing-transparency {
+  margin: 0 16px 16px;
+  padding: 16px;
+  background: rgba(15, 17, 21, 0.44);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.cursor-agent-panel .routing-transparency,
+.result .routing-transparency {
+  margin: 16px 0 0;
+}
+
+.routing-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.routing-header strong {
+  display: block;
+  font-size: 13px;
+}
+
+.routing-header small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.routing-basis {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.routing-warnings {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.routing-warning {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.routing-warning.warning {
+  color: #f0d999;
+  background: var(--warn-bg);
+  border-color: #715d27;
+}
+
+.routing-warning.info {
+  color: var(--muted);
+  background: var(--info-bg);
+}
+
+.routing-stages {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.routing-stage {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: rgba(23, 26, 33, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.routing-stage.unrecorded {
+  box-shadow: inset 3px 0 0 var(--border-strong);
+}
+
+.routing-stage-name {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.routing-stage strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.routing-stage-detail {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.routing-cost {
+  margin: 12px 0 0;
+  color: #c8ced9;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.routing-details {
+  padding-bottom: 8px;
+}
+
+.routing-detail-group {
+  margin: 0 8px 14px;
+}
+
+.routing-detail-group h4 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.routing-detail-group .receipt-facts {
+  padding: 0;
+}
+
+@media (max-width: 720px) {
+  .routing-stages {
+    grid-template-columns: 1fr;
+  }
+}
+
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

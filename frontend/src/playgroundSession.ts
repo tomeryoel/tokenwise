@@ -3,6 +3,7 @@ import type {
   CodingSession,
   CodingTaskType,
   DecisionEvaluation,
+  RoutingDecisionReceipt,
   RunResponse,
   WorkflowType,
 } from "./types";
@@ -53,6 +54,8 @@ export interface PlaygroundSession {
   cursorPathReasons: string[];
   cursorRecommendationBasis: "heuristic" | "configured" | "evidence" | null;
   cursorRecommendationConfidence: number | null;
+  /** Recommendation frozen before the run, as shown to the user pre-run. */
+  cursorRoutingRecommendation: RoutingDecisionReceipt | null;
   cursorModels: Array<{ id: string; display_name: string }>;
   cursorBridgeStatus: string | null;
   cursorValidationCommand: string;
@@ -80,6 +83,7 @@ export interface PlaygroundSession {
     validation_exit_code: number | null;
     validation_stdout: string | null;
     validation_stderr: string | null;
+    routing: RoutingDecisionReceipt | null;
   } | null;
 }
 
@@ -107,6 +111,7 @@ export const initialPlaygroundSession = (): PlaygroundSession => ({
   cursorPathReasons: [],
   cursorRecommendationBasis: null,
   cursorRecommendationConfidence: null,
+  cursorRoutingRecommendation: null,
   cursorModels: [],
   cursorBridgeStatus: null,
   cursorValidationCommand: "python3 -m pytest",

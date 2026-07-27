@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field
 
+from routing_receipt import RoutingTarget
+
 
 class OptimizationPlanInput(BaseModel):
     route: str = "cheap"
@@ -67,3 +69,8 @@ class ProviderExecuteResponse(BaseModel):
     actual_execution_attempt_count: int = 0
     error_code: str | None = None
     error_message: str | None = None
+    # Routing transparency (RoutingDecisionReceipt v1). Describes the target
+    # chosen for execution and the target that actually ran; unknown parts stay
+    # null. Provider-selection behaviour itself is unchanged.
+    selected_target: RoutingTarget = Field(default_factory=RoutingTarget)
+    executed_target: RoutingTarget = Field(default_factory=RoutingTarget)

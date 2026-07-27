@@ -8,6 +8,7 @@ import type {
   DecisionReceipt,
   DecisionEvaluation,
   PolicyMode,
+  RoutingDecisionReceipt,
   RunResponse,
   VerificationStatus,
   VerificationType,
@@ -369,6 +370,7 @@ export interface CursorRouteRecommendation {
   path_reasons?: string[];
   recommendation_basis?: "heuristic" | "configured" | "evidence";
   confidence?: number;
+  routing?: RoutingDecisionReceipt | null;
 }
 
 export interface CursorAgentRunResult {
@@ -400,6 +402,8 @@ export interface CursorAgentRunResult {
   validation_stdout?: string | null;
   validation_stderr?: string | null;
   persist_raw_diff?: boolean;
+  /** Runtime-only routing receipt; absent if the optimizer could not build it. */
+  receipt?: { routing?: RoutingDecisionReceipt | null } | null;
 }
 
 export async function fetchCursorAgentHealth(): Promise<CursorAgentHealth> {

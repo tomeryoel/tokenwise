@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -611,3 +612,154 @@ def test_owner_can_create_member_with_user_scoped_dashboard(
         "organization_id": member["organization_id"],
         "user_id": member["id"],
     }
+
+
+# --------------------------------------------------------------------------- #
+# Cursor SDK run: routing transparency receipt
+# --------------------------------------------------------------------------- #
+CURSOR_ROUTING_RECEIPT = {
+    "version": "routing_receipt_v1",
+    "recommended": {
+        "path": "cursor_sdk",
+        "tier": "cheap",
+        "provider": "cursor-sdk",
+        "model": "composer-2.5-fast",
+    },
+    "selected": {
+        "path": "cursor_sdk",
+        "tier": "cheap",
+        "provider": "cursor-sdk",
+        "model": "composer-2.5-fast",
+    },
+    "executed": {
+        "path": "cursor_sdk",
+        "tier": "cheap",
+        "provider": "cursor-sdk",
+        "model": "composer-2.5-fast",
+    },
+    "basis": "heuristic",
+    "reason_codes": ["repo_edit_required"],
+    "assumptions": ["cursor_bridge_health_passed"],
+    "confidence": {"value": 0.7, "calibration": "not_calibrated"},
+    "alternatives": [],
+    "cost_efficiency": {"code": "paid_execution_justified"},
+    "fingerprints": {"prompt": None, "result": "res123", "diff": "dif456"},
+}
+
+BRIDGE_RUN_RESULT = {
+    "status": "completed",
+    "result_text": "Updated greet() in hello.py.",
+    "model_used": "composer-2.5-fast",
+    "run_id": "run-1",
+    "agent_id": "agent-1",
+    "duration_ms": 4200,
+    "workspace_kind": "disposable_sandbox",
+    "changed_files": ["hello.py"],
+    "diff_fingerprint": "dif456",
+    "validation_command": "pytest -q",
+    "validation_status": "passed",
+    "diff_text": "--- a/hello.py\n+++ b/hello.py\n",
+}
+
+
+def _cursor_run_stubs(monkeypatch: pytest.MonkeyPatch, *, receipt_status: int = 200):
+    """Stub the bridge and the optimizer for one Cursor SDK run."""
+    calls: dict[str, object] = {}
+
+    async def fake_bridge(method, path, *, payload=None, timeout=300.0):
+        calls["bridge_path"] = path
+        return dict(BRIDGE_RUN_RESULT)
+
+    async def fake_optimizer(method, path, *, payload=None, params=None):
+        if path == "/connectors/cursor-sdk/runs":
+            calls["persist_payload"] = payload
+            return Response(
+                content=json.dumps({
+                    "session_id": "cs-1",
+                    "attempt_id": "at-1",
+                    "result_fingerprint": "res123",
+                }),
+                media_type="application/json",
+            )
+        if path == "/cursor/route/receipt":
+            calls["receipt_payload"] = payload
+            if receipt_status != 200:
+                return Response(status_code=receipt_status, content="{}", media_type="application/json")
+            return Response(
+                content=json.dumps(CURSOR_ROUTING_RECEIPT),
+                media_type="application/json",
+            )
+        return Response(content="{}", media_type="application/json")
+
+    monkeypatch.setattr(main, "_bridge_request", fake_bridge)
+    monkeypatch.setattr(main, "_optimizer_request", fake_optimizer)
+    return calls
+
+
+def _run_cursor_agent(client: TestClient):
+    return client.post(
+        "/cursor-agent/run",
+        json={
+            "prompt": "Update hello.py so greet() returns a personalized greeting",
+            "selected_model": "composer-2.5-fast",
+            "recommended_model": "composer-2.5-fast",
+            "workflow": "agent",
+            "validation_command": "pytest -q",
+            "include_diff_in_response": True,
+        },
+    )
+
+
+def test_cursor_run_returns_the_routing_receipt(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setup_owner(client)
+    calls = _cursor_run_stubs(monkeypatch)
+
+    response = _run_cursor_agent(client)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["receipt"]["routing"] == CURSOR_ROUTING_RECEIPT
+    assert body["model_used"] == "composer-2.5-fast"
+
+    # The recommendation is recomputed server-side from the objective and the
+    # organization policy; the client cannot assert its own basis.
+    receipt_payload = calls["receipt_payload"]
+    assert receipt_payload["policy_mode"] == "balanced"
+    assert receipt_payload["executed_model"] == "composer-2.5-fast"
+    assert receipt_payload["validation_command_provided"] is True
+    assert receipt_payload["bridge_reachable"] is True
+    assert receipt_payload["result_fingerprint"] == "res123"
+    assert receipt_payload["diff_fingerprint"] == "dif456"
+    assert "basis" not in receipt_payload
+    assert "reason_codes" not in receipt_payload
+
+
+def test_cursor_run_receipt_carries_no_raw_content(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setup_owner(client)
+    _cursor_run_stubs(monkeypatch)
+
+    routing = _run_cursor_agent(client).json()["receipt"]["routing"]
+    serialized = json.dumps(routing)
+    assert "hello.py" not in serialized
+    assert "greet" not in serialized
+    assert "--- a/" not in serialized
+    assert "pytest" not in serialized
+    assert routing["fingerprints"]["prompt"] is None
+
+
+def test_cursor_run_degrades_when_the_receipt_is_unavailable(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setup_owner(client)
+    _cursor_run_stubs(monkeypatch, receipt_status=503)
+
+    body = _run_cursor_agent(client).json()
+    assert body["receipt"] is None
+    assert body["status"] == "completed"
+    assert body["answer"] == "Updated greet() in hello.py."

@@ -19,6 +19,8 @@ from cursor.models import list_cursor_models
 from cursor.router import (
     CursorRouteRecommendation,
     CursorRouteRequest,
+    CursorRunReceiptRequest,
+    build_cursor_run_receipt,
     compare_cursor_models,
     recommend_cursor_route,
 )
@@ -30,7 +32,13 @@ from policy import PolicyMode, canonicalize_policy_mode
 from providers.executor import execute_provider
 from providers.ollama_provider import OllamaProvider
 from providers.openai_provider import OpenAIProvider
+from providers.registry import describe_resolution
 from providers.schemas import ProviderExecuteRequest
+from routing_receipt import (
+    ProviderAvailability,
+    RoutingDecisionReceipt,
+    build_graph_recommendation,
+)
 from usage.analytics import get_recent, get_summary
 from usage.database import init_db
 from usage.intelligence_analytics import (
@@ -127,6 +135,35 @@ async def providers_health():
     return {"ollama": ollama_health, "openai": openai_health}
 
 
+def _routing_recommendation(result: dict) -> dict:
+    """Describe the graph tier decision as a RoutingDecisionReceipt v1 stage."""
+    tier = result.get("selected_tier", "cheap")
+    privacy_enforced = bool(result.get("require_local_model", False))
+    facts = describe_resolution(tier, privacy_enforced)
+    receipt = build_graph_recommendation(
+        graph_path=result.get("graph_path", "standard_optimization_path"),
+        selected_tier=tier,
+        task_type=result.get("task_type", "unknown"),
+        complexity_level=result.get("complexity_level", "medium"),
+        policy_mode=result.get("policy_mode", "balanced"),
+        privacy_enforced=privacy_enforced,
+        allow_external_model=bool(result.get("allow_external_model", True)),
+        availability=ProviderAvailability(
+            resolved_provider=facts.resolved_provider,
+            resolved_model=facts.resolved_model,
+            resolved_tier=facts.resolved_tier,
+            external_configured=facts.external_configured,
+            local_model_for_local_tier=facts.local_model_for_local_tier,
+            stronger_tier=facts.stronger_tier,
+            stronger_external_model=facts.stronger_external_model,
+        ),
+        estimated_baseline_cost=result.get("estimated_baseline_cost"),
+        estimated_optimized_cost=result.get("estimated_optimized_cost"),
+        estimated_savings=result.get("estimated_savings"),
+    )
+    return receipt.model_dump()
+
+
 @app.post("/agent/run")
 def agent_run(req: AgentRunRequest):
     result = run_optimizer(req.model_dump())
@@ -167,6 +204,7 @@ def agent_run(req: AgentRunRequest):
         "estimated_cost": result.get("estimated_optimized_cost", 0.0),
         "cost_saved": result.get("estimated_savings", 0.0),
         "optimization_reason": optimization_reason,
+        "routing_recommendation": _routing_recommendation(result),
     }
 
 
@@ -404,6 +442,12 @@ def cursor_models_list():
 @app.post("/cursor/route/recommend", response_model=CursorRouteRecommendation)
 def cursor_route_recommend(req: CursorRouteRequest):
     return recommend_cursor_route(req)
+
+
+@app.post("/cursor/route/receipt", response_model=RoutingDecisionReceipt)
+def cursor_route_receipt(req: CursorRunReceiptRequest):
+    """Runtime-only routing receipt for one executed Cursor SDK run."""
+    return build_cursor_run_receipt(req)
 
 
 @app.get("/cursor/route/compare")
