@@ -11,6 +11,8 @@ import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
 import Account from "./pages/Account";
 import { PRODUCT_NAME } from "./brand";
+import momihelmLogo from "./assets/figma-playground/momihelm-logo.png";
+import signOutIcon from "./assets/figma-playground/sign-out.png";
 
 type Tab = "playground" | "dashboard" | "admin" | "account";
 
@@ -111,15 +113,27 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand-lockup">
+          <img
+            className="brand-logo"
+            src={momihelmLogo}
+            alt=""
+            width="50"
+            height="46"
+          />
           <div className="brand">{PRODUCT_NAME}</div>
-          <span>{user.organization_name}</span>
         </div>
         <nav className="nav" aria-label="Primary navigation">
           {tabs.map((item) => (
             <button
               key={item.id}
               type="button"
-              className={tab === item.id ? "nav-btn active" : "nav-btn"}
+              className={[
+                "nav-btn",
+                item.id === "playground" ? "playground-nav" : "",
+                tab === item.id ? "active" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
               onClick={() => setTab(item.id)}
             >
               {item.label}
@@ -132,7 +146,7 @@ export default function App() {
           </span>
           <span className="user-identity">
             <strong>{user.display_name}</strong>
-            <small>{user.role} · {user.department_id}</small>
+            <small>{user.role} · {user.organization_name}</small>
           </span>
           <button
             type="button"
@@ -140,6 +154,13 @@ export default function App() {
             disabled={loggingOut}
             onClick={() => void handleLogout()}
           >
+            <img
+              className="signout-icon"
+              src={signOutIcon}
+              alt=""
+              width="22"
+              height="17"
+            />
             {loggingOut ? "Signing out..." : "Sign out"}
           </button>
         </div>
@@ -149,7 +170,7 @@ export default function App() {
         <div className="global-warning" role="alert">{startupError}</div>
       )}
 
-      <main className="content">
+      <main className={tab === "playground" ? "content playground-content" : "content"}>
         {tab === "playground" && (
           <Playground
             policyMode={user.policy_mode}

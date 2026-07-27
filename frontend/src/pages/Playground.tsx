@@ -30,6 +30,9 @@ import {
   type PlaygroundMode,
   type PlaygroundSession,
 } from "../playgroundSession";
+import attachImageIcon from "../assets/figma-playground/attach-image.svg";
+import codingSessionIcon from "../assets/figma-playground/coding-session.svg";
+import quickQuestionIcon from "../assets/figma-playground/quick-question.svg";
 import type {
   CodingContext,
   CodingTaskType,
@@ -706,19 +709,33 @@ export default function Playground({
       <div className="workspace-mode-switch" aria-label="Playground mode">
         <button
           type="button"
-          className={mode === "coding" ? "active" : ""}
+          className={mode === "coding" ? "active has-mode-icon" : "has-mode-icon"}
           disabled={Boolean(codingSession && codingPhase !== "evaluated")}
           onClick={() => setMode("coding")}
         >
+          <img
+            className="mode-icon mode-icon-coding"
+            src={codingSessionIcon}
+            alt=""
+            width="54"
+            height="54"
+          />
           <span>Coding session</span>
           <small>Classify, route, verify, and evaluate</small>
         </button>
         <button
           type="button"
-          className={mode === "quick" ? "active" : ""}
+          className={mode === "quick" ? "active has-mode-icon" : "has-mode-icon"}
           disabled={Boolean(codingSession && codingPhase !== "evaluated")}
           onClick={() => setMode("quick")}
         >
+          <img
+            className="mode-icon mode-icon-quick"
+            src={quickQuestionIcon}
+            alt=""
+            width="34.47"
+            height="30"
+          />
           <span>Quick question</span>
           <small>Ask without outcome tracking</small>
         </button>
@@ -958,7 +975,13 @@ export default function Playground({
             }
             htmlFor="playground-attachment"
           >
-            <span aria-hidden="true">+</span>
+            <img
+              className="attachment-icon"
+              src={attachImageIcon}
+              alt=""
+              width="17.2187"
+              height="22.477"
+            />
             Attach image
           </label>
           <input
@@ -1011,7 +1034,11 @@ export default function Playground({
                 : "Your draft stays here if the request cannot be completed."}
           </span>
           <button
-            className="primary"
+            className={
+              !loading && primaryAction === "Review coding objective"
+                ? "primary figma-review-action"
+                : "primary"
+            }
             type="submit"
             disabled={loading || !hasDraft || submissionLocked}
           >
