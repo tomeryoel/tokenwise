@@ -70,6 +70,21 @@ def test_collect_changes_and_fingerprint(tmp_path: Path):
     assert report.block_reason is None
 
 
+def test_collect_changes_includes_untracked_file_diff(tmp_path: Path):
+    sandbox = ensure_disposable_sandbox(tmp_path / "coding-sandbox")
+    (sandbox / "names.py").write_text(
+        'def normalize_name(name: str) -> str:\n    return " ".join(name.split())\n',
+        encoding="utf-8",
+    )
+
+    changes = collect_workspace_changes(str(sandbox))
+    assert "names.py" in changes.changed_files
+    assert changes.diff_text
+    assert "normalize_name" in (changes.diff_text or "")
+    assert "names.py" in (changes.diff_text or "")
+    assert changes.diff_fingerprint
+
+
 def test_validation_runs_allowlisted_pytest(tmp_path: Path):
     sandbox = ensure_disposable_sandbox(tmp_path / "coding-sandbox")
     report = run_validation(str(sandbox), "python3 -m pytest")
