@@ -43,6 +43,29 @@ interface Props {
   setSession: React.Dispatch<React.SetStateAction<PlaygroundSession>>;
 }
 
+function cursorAgentRunErrorMessage(
+  status: string,
+  detail: string | null | undefined,
+): string {
+  switch (status) {
+    case "blocked_dirty_worktree":
+      return "This run was blocked because the Git worktree is dirty. Reset the disposable sandbox, then try again.";
+    case "blocked_validation":
+      return "That validation command is not allowlisted. Choose an approved command, then try again.";
+    case "blocked_preflight":
+      return "This run was blocked by workspace safety checks. Use the disposable sandbox, then try again.";
+    case "bridge_error":
+      return detail?.includes("cursor_api_key")
+        ? "Cursor authentication is missing or invalid. Configure the bridge API key, then retry."
+        : detail || "The Cursor SDK bridge could not start this run. Please try again.";
+    default:
+      return (
+        detail ||
+        `Cursor Agent Coding Run finished with status ${status}. Your draft was preserved.`
+      );
+  }
+}
+
 const TASK_TYPES: { value: CodingTaskType; label: string }[] = [
   { value: "bug_investigation", label: "Bug investigation" },
   { value: "bug_fix", label: "Bug fix" },
@@ -181,13 +204,13 @@ export default function Playground({
           health.status === "ok"
             ? null
             : health.detail ||
-              "Cursor Agent bridge is not ready. Start ./momihelm cursor-bridge.",
+              "The Cursor SDK bridge is not ready. Start the bridge, then try again.",
       }));
     } catch (requestError) {
       const message =
         requestError instanceof Error
           ? requestError.message
-          : "Could not reach Cursor Agent endpoints.";
+          : "Could not reach Cursor Agent Coding Run.";
       setSession((current) => ({
         ...current,
         cursorBridgeStatus: "unavailable",
@@ -218,9 +241,17 @@ export default function Playground({
         cursorRoutingRecommendation: recommendation.routing ?? null,
         cursorSelectedModel:
           current.cursorSelectedModel || recommendation.recommended_model_id,
+        error: null,
       }));
-    } catch {
-      // Recommendation is optional for the experimental path.
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not refresh the model recommendation.";
+      setSession((current) => ({
+        ...current,
+        error: message,
+      }));
     }
   }
 
@@ -230,7 +261,15 @@ export default function Playground({
     if (!cursorSelectedModel) {
       setSession((current) => ({
         ...current,
-        error: "Select a Cursor model before running the Cursor Agent.",
+        error: "Select a Cursor model before running Cursor Agent Coding Run.",
+      }));
+      return;
+    }
+    if (cursorBridgeStatus && cursorBridgeStatus !== "ok") {
+      setSession((current) => ({
+        ...current,
+        error:
+          "The Cursor SDK bridge is not ready. Recheck the bridge, then try again.",
       }));
       return;
     }
@@ -241,7 +280,7 @@ export default function Playground({
       error: null,
       cursorAgentResult: null,
     }));
-    setAnnouncement("Running Cursor Agent through the local SDK bridge.");
+    setAnnouncement("Running Cursor Agent Coding Run through the local SDK bridge.");
 
     try {
       if (!cursorRecommendedModel) {
@@ -255,6 +294,8 @@ export default function Playground({
         validation_command: cursorValidationCommand || null,
         include_diff_in_response: true,
       });
+      const validationFailed = response.validation_status === "failed";
+      const validationTimedOut = response.validation_status === "timed_out";
       setSession((current) => ({
         ...current,
         loading: false,
@@ -292,26 +333,29 @@ export default function Playground({
         },
         error:
           response.status === "finished"
-            ? null
-            : response.error ||
-              `Cursor Agent Coding Run finished with status ${response.status}`,
+            ? validationFailed
+              ? "Cursor Agent Coding Run finished, but validation failed. Review the Validation section below."
+              : validationTimedOut
+                ? "Cursor Agent Coding Run finished, but validation timed out. Review the Validation section below."
+                : null
+            : cursorAgentRunErrorMessage(response.status, response.error),
       }));
       setAnnouncement(
-        response.status === "finished"
+        response.status === "finished" && !validationFailed && !validationTimedOut
           ? "Cursor Agent Coding Run result is ready in MomiHelm."
-          : "Cursor Agent Coding Run did not finish successfully.",
+          : "Cursor Agent Coding Run needs attention before you continue.",
       );
     } catch (requestError) {
       const message =
         requestError instanceof Error
           ? requestError.message
-          : "Cursor Agent run failed";
+          : "Cursor Agent Coding Run failed";
       setSession((current) => ({
         ...current,
         loading: false,
         error: message,
       }));
-      setAnnouncement("Cursor Agent could not complete. Your draft was preserved.");
+      setAnnouncement("Cursor Agent Coding Run could not complete. Your draft was preserved.");
     }
   }
 
@@ -652,8 +696,9 @@ export default function Playground({
           <h1>Playground</h1>
           <p>
             Run a verified coding session to measure Model Fit and
-            Cost-to-Success, use Quick question for the lightweight path, or try
-            Cursor Agent (experimental) through the official Cursor SDK bridge.
+            Cost-to-Success, use Quick question for the lightweight path, or run
+            Cursor Agent Coding Run (experimental) with model selection, diff
+            review, and validation.
           </p>
         </div>
       </header>
@@ -684,7 +729,10 @@ export default function Playground({
           onClick={() => setMode("cursor_agent")}
         >
           <span>Cursor Agent Coding Run (experimental)</span>
-          <small>SDK coding agent against a disposable sandbox</small>
+          <small>
+            Execute repository tasks safely with model selection, diff review,
+            and validation.
+          </small>
         </button>
       </div>
 
@@ -753,10 +801,13 @@ export default function Playground({
               <span>Experimental</span>
               <strong>Cursor Agent Coding Run via official Cursor SDK</strong>
               <small>
-                Runs against the disposable local sandbox by default. Dirty Git
+                Uses the disposable local sandbox by default. Dirty Git
                 worktrees are hard-blocked. Raw diffs are shown for this run only
-                and are not persisted by default. Bridge status:{" "}
-                {cursorBridgeStatus ?? "unknown"}.
+                and are not persisted. Bridge status:{" "}
+                {cursorBridgeStatus ?? "unknown"}
+                {cursorBridgeStatus === "ok"
+                  ? " (reachable; Cursor API auth is confirmed on model list or run)."
+                  : "."}
               </small>
             </div>
 
@@ -934,6 +985,12 @@ export default function Playground({
               </button>
             </span>
           )}
+          {mode === "cursor_agent" && (
+            <small className="keyboard-hint">
+              Image attach is unavailable in Cursor Agent Coding Run; describe
+              the change in the objective instead.
+            </small>
+          )}
           <small id="playground-keyboard-hint" className="keyboard-hint">
             Enter to continue · Shift+Enter for a new line
           </small>
@@ -949,7 +1006,9 @@ export default function Playground({
           <span>
             {mode === "coding"
               ? "Raw code is not stored in the shared intelligence record."
-              : "Your draft stays here if the request cannot be completed."}
+              : mode === "cursor_agent"
+                ? "Runs stay in the disposable sandbox. Your draft is preserved on failure."
+                : "Your draft stays here if the request cannot be completed."}
           </span>
           <button
             className="primary"
@@ -959,7 +1018,9 @@ export default function Playground({
             {loading
               ? codingPhase === "draft" && mode === "coding"
                 ? "Classifying..."
-                : "Working..."
+                : mode === "cursor_agent"
+                  ? "Running Cursor Agent Coding Run…"
+                  : "Working..."
               : primaryAction}
           </button>
         </div>
@@ -972,12 +1033,16 @@ export default function Playground({
             <strong>
               {mode === "coding" && codingPhase === "draft"
                 ? `${PRODUCT_NAME} is classifying the objective`
-                : `${PRODUCT_NAME} is working on your request`}
+                : mode === "cursor_agent"
+                  ? "Running Cursor Agent Coding Run…"
+                  : `${PRODUCT_NAME} is working on your request`}
             </strong>
             <small>
               {mode === "coding" && codingPhase === "draft"
                 ? "Preparing a correctable use-case classification before model execution."
-                : "Choosing a route, applying safety checks, and tracking cost."}
+                : mode === "cursor_agent"
+                  ? "Waiting for the Cursor SDK bridge, applying workspace safety checks, then collecting the diff and validation."
+                  : "Choosing a route, applying safety checks, and tracking cost."}
               {result && " Your previous answer remains available below."}
             </small>
           </div>
@@ -1038,7 +1103,15 @@ export default function Playground({
                 <span>{PRODUCT_NAME} + Cursor SDK</span>
                 <h2>Coding Run result</h2>
               </div>
-              <span className="answer-state">{cursorAgentResult.status}</span>
+              <span className="answer-state">
+                {cursorAgentResult.status === "finished" &&
+                cursorAgentResult.validation_status === "failed"
+                  ? "finished · validation failed"
+                  : cursorAgentResult.status === "finished" &&
+                      cursorAgentResult.validation_status === "timed_out"
+                    ? "finished · validation timed out"
+                    : cursorAgentResult.status}
+              </span>
             </header>
             <div className="answer-content">
               <ReactMarkdown>
@@ -1055,9 +1128,9 @@ export default function Playground({
                   : ""}
               </p>
             )}
-            {cursorAgentResult.changed_files.length > 0 && (
-              <div className="answer-content">
-                <h3>Changed files</h3>
+            <div className="answer-content">
+              <h3>Changed files</h3>
+              {cursorAgentResult.changed_files.length > 0 ? (
                 <ul className="muted-list">
                   {cursorAgentResult.changed_files.map((file) => (
                     <li key={file}>
@@ -1065,30 +1138,53 @@ export default function Playground({
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
-            {cursorAgentResult.diff_text && (
-              <div className="answer-content">
-                <h3>
-                  Diff for this run
-                  {cursorAgentResult.diff_truncated ? " (truncated)" : ""}
-                </h3>
-                <pre>
-                  <code>{cursorAgentResult.diff_text}</code>
-                </pre>
-                <small>
-                  Shown to you for this run only. Raw diffs are not persisted by
-                  default
+              ) : (
+                <p className="muted">
+                  No files changed in this run. The objective may already match
+                  the sandbox, or the agent made no edits.
+                </p>
+              )}
+            </div>
+            <div className="answer-content">
+              <h3>
+                Diff for this run
+                {cursorAgentResult.diff_truncated ? " (truncated)" : ""}
+              </h3>
+              {cursorAgentResult.diff_text ? (
+                <>
+                  <pre>
+                    <code>{cursorAgentResult.diff_text}</code>
+                  </pre>
+                  <small>
+                    Shown to you for this run only. Raw diffs are not persisted by
+                    default
+                    {cursorAgentResult.diff_fingerprint
+                      ? ` · fingerprint ${cursorAgentResult.diff_fingerprint.slice(0, 12)}…`
+                      : ""}
+                    .
+                  </small>
+                </>
+              ) : (
+                <p className="muted">
+                  No diff was returned for this run.
                   {cursorAgentResult.diff_fingerprint
-                    ? ` · fingerprint ${cursorAgentResult.diff_fingerprint.slice(0, 12)}…`
+                    ? ` A fingerprint is available (${cursorAgentResult.diff_fingerprint.slice(0, 12)}…).`
                     : ""}
-                  .
-                </small>
-              </div>
-            )}
+                </p>
+              )}
+            </div>
             {cursorAgentResult.validation_command && (
               <div className="answer-content">
-                <h3>Validation</h3>
+                <h3>
+                  Validation
+                  {cursorAgentResult.validation_status === "passed"
+                    ? " — passed"
+                    : cursorAgentResult.validation_status === "failed"
+                      ? " — failed"
+                      : cursorAgentResult.validation_status === "timed_out"
+                        ? " — timed out"
+                        : ""}
+                </h3>
                 <p>
                   <code>{cursorAgentResult.validation_command}</code> →{" "}
                   {cursorAgentResult.validation_status ?? "n/a"}
@@ -1096,6 +1192,18 @@ export default function Playground({
                     ? ` (exit ${cursorAgentResult.validation_exit_code})`
                     : ""}
                 </p>
+                {cursorAgentResult.validation_status === "failed" && (
+                  <p className="muted">
+                    The coding run finished, but validation did not pass. Review
+                    the output below before treating this as a successful demo.
+                  </p>
+                )}
+                {cursorAgentResult.validation_status === "timed_out" && (
+                  <p className="muted">
+                    Validation exceeded the time limit. Retry with a shorter
+                    command, or reset the sandbox and try again.
+                  </p>
+                )}
                 {(cursorAgentResult.validation_stdout ||
                   cursorAgentResult.validation_stderr) && (
                   <pre>

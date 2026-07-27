@@ -244,15 +244,27 @@ def run_validation(cwd: str, command: str) -> ValidationReport:
             stderr="validation_command_not_allowlisted",
         )
 
-    completed = subprocess.run(
-        normalized,
-        cwd=Path(cwd).expanduser().resolve(),
-        shell=True,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=180,
-    )
+    try:
+        completed = subprocess.run(
+            normalized,
+            cwd=Path(cwd).expanduser().resolve(),
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
+        stderr = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
+        return ValidationReport(
+            command=normalized,
+            status="timed_out",
+            exit_code=None,
+            stdout=stdout[:20_000],
+            stderr=(stderr or "validation_command_timed_out")[:20_000],
+        )
+
     return ValidationReport(
         command=normalized,
         status="passed" if completed.returncode == 0 else "failed",
