@@ -548,11 +548,16 @@ async function apiFailureMessage(response: Response): Promise<string> {
     coding_session_is_closed: "This coding session is already closed.",
     coding_session_not_found: "This coding session could not be found.",
     invalid_coding_session_metadata: "The coding-session details are invalid.",
-    cursor_bridge_unavailable: "The local Cursor SDK bridge is not running. Start it with ./momihelm cursor-bridge.",
-    cursor_bridge_not_configured: "Cursor Agent bridge is not configured. Set MOMIHELM_CURSOR_BRIDGE_TOKEN in .env.",
-    cursor_api_key_missing: "CURSOR_API_KEY is missing in the bridge environment.",
-    bridge_authentication_required: "The Cursor bridge rejected the bridge token.",
-    bridge_token_not_configured: "The Cursor bridge token is not configured.",
+    cursor_bridge_unavailable:
+      "The Cursor SDK bridge is not running. Start it, then try again.",
+    cursor_bridge_not_configured:
+      "Cursor Agent Coding Run is not configured for this environment.",
+    cursor_api_key_missing:
+      "Cursor authentication is missing. Add a Cursor API key to the bridge, then retry.",
+    bridge_authentication_required:
+      "The Cursor SDK bridge rejected this request. Check the bridge token, then retry.",
+    bridge_token_not_configured:
+      "The Cursor SDK bridge token is not configured.",
     intelligence_service_unavailable: "The coding intelligence service is temporarily unavailable.",
   };
   return messages[detail] ?? `Request failed (HTTP ${response.status}).`;

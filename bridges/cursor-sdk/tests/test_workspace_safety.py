@@ -70,6 +70,21 @@ def test_collect_changes_and_fingerprint(tmp_path: Path):
     assert report.block_reason is None
 
 
+def test_collect_changes_includes_untracked_file_diff(tmp_path: Path):
+    sandbox = ensure_disposable_sandbox(tmp_path / "coding-sandbox")
+    (sandbox / "names.py").write_text(
+        'def normalize_name(name: str) -> str:\n    return " ".join(name.split())\n',
+        encoding="utf-8",
+    )
+
+    changes = collect_workspace_changes(str(sandbox))
+    assert "names.py" in changes.changed_files
+    assert changes.diff_text
+    assert "normalize_name" in (changes.diff_text or "")
+    assert "names.py" in (changes.diff_text or "")
+    assert changes.diff_fingerprint
+
+
 def test_validation_runs_allowlisted_pytest(tmp_path: Path):
     sandbox = ensure_disposable_sandbox(tmp_path / "coding-sandbox")
     report = run_validation(str(sandbox), "python3 -m pytest")
@@ -82,6 +97,19 @@ def test_validation_rejects_non_allowlisted(tmp_path: Path):
     sandbox = ensure_disposable_sandbox(tmp_path / "coding-sandbox")
     report = run_validation(str(sandbox), "python -c 'print(1)'")
     assert report.status == "rejected_not_allowlisted"
+
+
+def test_validation_timeout_is_deterministic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    sandbox = ensure_disposable_sandbox(tmp_path / "coding-sandbox")
+
+    def _raise_timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd="python3 -m pytest", timeout=180)
+
+    monkeypatch.setattr(subprocess, "run", _raise_timeout)
+    report = run_validation(str(sandbox), "python3 -m pytest")
+    assert report.status == "timed_out"
+    assert report.exit_code is None
+    assert "timed_out" in (report.stderr or "")
 
 
 def test_reset_disposable_sandbox(tmp_path: Path):

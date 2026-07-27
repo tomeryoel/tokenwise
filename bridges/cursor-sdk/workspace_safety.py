@@ -212,7 +212,20 @@ def collect_workspace_changes(cwd: str) -> WorkspaceChangeReport:
         text=True,
         check=False,
     )
-    diff_text = diff.stdout if diff.returncode == 0 else ""
+    # git diff returns 0 for empty and 1 when differences exist.
+    diff_text = diff.stdout if diff.returncode in {0, 1} else ""
+
+    # New untracked files do not appear in `git diff HEAD`. Append a readable
+    # no-index diff so demos that create files still return reviewable content.
+    for entry in files:
+        if _path_is_tracked(path, entry):
+            continue
+        untracked = _untracked_file_diff(path, entry)
+        if untracked:
+            if diff_text and not diff_text.endswith("\n"):
+                diff_text += "\n"
+            diff_text += untracked
+
     truncated = False
     if len(diff_text) > MAX_DIFF_CHARS:
         diff_text = diff_text[:MAX_DIFF_CHARS]
@@ -233,6 +246,52 @@ def collect_workspace_changes(cwd: str) -> WorkspaceChangeReport:
     )
 
 
+def _path_is_tracked(cwd: Path, relative_path: str) -> bool:
+    probed = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", relative_path],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return probed.returncode == 0
+
+
+def _untracked_file_diff(cwd: Path, relative_path: str) -> str:
+    """Return a unified diff for a new untracked file (empty → content)."""
+    target = cwd / relative_path
+    if not target.is_file():
+        return ""
+    # Prefer git's no-index diff for a familiar unified format. Exit code 1
+    # means "differences found" and is expected.
+    probed = subprocess.run(
+        ["git", "diff", "--no-index", "--", "/dev/null", relative_path],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if probed.returncode in {0, 1} and probed.stdout.strip():
+        return probed.stdout
+    try:
+        content = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return f"diff --git a/{relative_path} b/{relative_path}\nnew file mode 100644\nBinary file added\n"
+    lines = content.splitlines()
+    body = "".join(f"+{line}\n" for line in lines)
+    if content and not content.endswith("\n"):
+        # Match unified-diff omission of a final newline marker lightly.
+        pass
+    return (
+        f"diff --git a/{relative_path} b/{relative_path}\n"
+        f"new file mode 100644\n"
+        f"--- /dev/null\n"
+        f"+++ b/{relative_path}\n"
+        f"@@ -0,0 +1,{len(lines)} @@\n"
+        f"{body}"
+    )
+
+
 def run_validation(cwd: str, command: str) -> ValidationReport:
     normalized = normalize_validation_command(command)
     if not normalized or not validation_allowed(normalized):
@@ -244,15 +303,27 @@ def run_validation(cwd: str, command: str) -> ValidationReport:
             stderr="validation_command_not_allowlisted",
         )
 
-    completed = subprocess.run(
-        normalized,
-        cwd=Path(cwd).expanduser().resolve(),
-        shell=True,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=180,
-    )
+    try:
+        completed = subprocess.run(
+            normalized,
+            cwd=Path(cwd).expanduser().resolve(),
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
+        stderr = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
+        return ValidationReport(
+            command=normalized,
+            status="timed_out",
+            exit_code=None,
+            stdout=stdout[:20_000],
+            stderr=(stderr or "validation_command_timed_out")[:20_000],
+        )
+
     return ValidationReport(
         command=normalized,
         status="passed" if completed.returncode == 0 else "failed",
