@@ -20,7 +20,6 @@ const BASE_TABS: { id: Tab; label: string }[] = [
   { id: "playground", label: "Playground" },
   { id: "dashboard", label: "Dashboard" },
   { id: "admin", label: "Admin" },
-  { id: "account", label: "Account" },
 ];
 
 export default function App() {
@@ -127,13 +126,7 @@ export default function App() {
             <button
               key={item.id}
               type="button"
-              className={[
-                "nav-btn",
-                item.id === "playground" ? "playground-nav" : "",
-                tab === item.id ? "active" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
+              className={tab === item.id ? "nav-btn active" : "nav-btn"}
               onClick={() => setTab(item.id)}
             >
               {item.label}
@@ -141,9 +134,15 @@ export default function App() {
           ))}
         </nav>
         <div className="user-menu">
-          <span className="user-avatar" aria-hidden="true">
+          <button
+            type="button"
+            className={tab === "account" ? "user-avatar active" : "user-avatar"}
+            aria-label="Account"
+            aria-current={tab === "account" ? "page" : undefined}
+            onClick={() => setTab("account")}
+          >
             {user.display_name.charAt(0).toUpperCase()}
-          </span>
+          </button>
           <span className="user-identity">
             <strong>{user.display_name}</strong>
             <small>{user.role} · {user.organization_name}</small>

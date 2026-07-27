@@ -725,7 +725,9 @@ export default function Playground({
         </button>
         <button
           type="button"
-          className={mode === "quick" ? "active has-mode-icon" : "has-mode-icon"}
+          className={
+            mode === "quick" ? "active has-mode-icon mode-quick" : "has-mode-icon mode-quick"
+          }
           disabled={Boolean(codingSession && codingPhase !== "evaluated")}
           onClick={() => setMode("quick")}
         >
@@ -733,8 +735,8 @@ export default function Playground({
             className="mode-icon mode-icon-quick"
             src={quickQuestionIcon}
             alt=""
-            width="34.47"
-            height="30"
+            width="20"
+            height="17"
           />
           <span>Quick question</span>
           <small>Ask without outcome tracking</small>
