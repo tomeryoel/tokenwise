@@ -606,7 +606,7 @@ export default function Playground({
       nextMode === "coding"
         ? "Coding-session mode is ready."
         : nextMode === "cursor_agent"
-          ? "Cursor Agent Coding Run experimental mode is ready."
+          ? "Cursor Agent Coding Run is ready."
           : "Quick-question mode is ready.",
     );
     if (nextMode === "cursor_agent") {
@@ -697,8 +697,8 @@ export default function Playground({
           <p>
             Run a verified coding session to measure Model Fit and
             Cost-to-Success, use Quick question for the lightweight path, or run
-            Cursor Agent Coding Run (experimental) with model selection, diff
-            review, and validation.
+            Cursor Agent Coding Run with model selection, diff review, and
+            validation.
           </p>
         </div>
       </header>
@@ -728,7 +728,7 @@ export default function Playground({
           disabled={Boolean(codingSession && codingPhase !== "evaluated")}
           onClick={() => setMode("cursor_agent")}
         >
-          <span>Cursor Agent Coding Run (experimental)</span>
+          <span>Cursor Agent Coding Run</span>
           <small>
             Execute repository tasks safely with model selection, diff review,
             and validation.
@@ -798,7 +798,7 @@ export default function Playground({
             aria-label="Cursor Agent Coding Run controls"
           >
             <div className="continuing-session-banner">
-              <span>Experimental</span>
+              <span>Cursor SDK</span>
               <strong>Cursor Agent Coding Run via official Cursor SDK</strong>
               <small>
                 Uses the disposable local sandbox by default. Dirty Git
@@ -1073,7 +1073,7 @@ export default function Playground({
       {mode === "cursor_agent" && cursorAgentResult && (
         <section className="result" aria-label="Cursor Agent Coding Run result">
           <div className="result-context">
-            <span>Cursor Agent Coding Run (experimental)</span>
+            <span>Cursor Agent Coding Run</span>
             <p>{submittedPrompt}</p>
             <small>
               Selected: {cursorAgentResult.selected_model}
