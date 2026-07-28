@@ -1,129 +1,246 @@
 # MomiHelm
 
-**Evidence-qualified AI coding decision intelligence.**
+MomiHelm is a transparent AI orchestration and coding control plane that selects the right execution path for each request—and shows exactly what was recommended, selected, executed, validated, and measured.
 
-MomiHelm is a policy-aware AI gateway and coding decision-intelligence MVP.
-It classifies and routes requests, protects sensitive inputs, reuses safe
-answers, and explains each cost decision. In a verified Playground coding
-session, it also evaluates Model Fit, calculates Cost-to-Success when the
-evidence is complete, and produces evidence-labeled recommendations.
+It routes requests across local models, external providers, semantic cache, and Cursor-powered coding execution while exposing the reasoning, cost, validation, and governance signals behind each decision.
 
-> **Status:** four-layer end-to-end path is working. **Guardrails (Day 3)**,
-> **semantic cache (Day 4)**, **LangGraph optimizer (Day 5)**, **Layer 4
-> provider execution (Day 6)**, **usage DB + Dashboard metrics (Day 7)**,
-> **PyTorch image analysis (Day 8)**, and **privacy-safe Langfuse tracing (Day 9)**
-> are now real. **Day 12 release readiness** adds automatic workflow bootstrap,
-> health-based startup, loopback-only networking, production frontend serving,
-> and a product-level smoke test. The current security release adds first-run
-> owner setup, account sign-in, HTTP-only sessions, organization roles,
-> server-enforced policy, organization/user data isolation, and private backend
-> networking. The coding-intelligence vertical slice now adds trusted coding
-> sessions and attempts, structured outcome verification, evidence-qualified
-> Model Fit and Cost-to-Success, and an outcome-first Dashboard.
+MomiHelm is the product name for this repository. The repository, webhook paths, Docker resources, and some internal filenames still use `tokenwise` for compatibility.
 
-> **Brand migration:** MomiHelm is the product name. Existing lowercase
-> `tokenwise` webhook paths, database filenames, Docker resources, environment
-> variables, and repository paths remain unchanged for backward compatibility.
+> Status: local end-to-end platform implemented and demoable on `main`. The default runtime is a loopback-only Docker Compose stack.
 
-## Architecture (four layers)
+## Why MomiHelm
+
+Teams increasingly use multiple AI models, execution paths, and coding workflows. A short factual question, a privacy-sensitive prompt, a semantic-cache hit, and a repository-editing task do not have the same cost, latency, quality, or safety requirements.
+
+In many AI developer tools, the selected path is opaque. Teams see an answer, but not why it was routed that way, whether a cheaper local route existed, whether a coding run was validated, or what evidence remains for review.
+
+MomiHelm addresses that gap with transparent orchestration across guardrails, cache, optimization, provider execution, and coding-agent execution, plus explicit routing stages and privacy-conscious analytics.
+
+## Core capabilities
+
+- **Quick question** for lightweight requests without coding-outcome tracking.
+- **Coding session** for structured coding objectives with classification, verification, Model Fit, and Cost-to-Success.
+- **Cursor Agent Coding Run** for local Cursor SDK execution with model selection, diff review, and validation.
+- Deterministic input guardrails and output checks.
+- Semantic-cache lookup and best-effort storage.
+- LangGraph-based path and tier recommendation.
+- Local Ollama execution by default, with optional external-provider execution when configured.
+- Structured Decision Receipt and Routing Transparency for both standard requests and Cursor-based coding execution.
+- Authenticated sessions using HttpOnly cookies, with role-based administrative controls.
+- Metadata-oriented usage persistence and coding-session analytics.
+- Privacy-conscious Langfuse export as an optional overlay.
+- Release-style `doctor` and `smoke` commands for local verification.
+
+## Architecture
 
 ```mermaid
-flowchart TB
-    subgraph L1 [Layer 1 - UI]
-        UI["React + Vite + TypeScript"]
-        GW["Authenticated FastAPI gateway"]
-    end
-    subgraph L2 [Layer 2 - Orchestration]
-        N8N["n8n workflow"]
-    end
-    subgraph L3 [Layer 3 - FastAPI microservices]
-        GR["guardrails-service :8001"]
-        RAG["rag-cache-service :8002"]
-        IMG["image-analyser-service :8003"]
-        OPT["optimizer-service :8004"]
-    end
-    subgraph L4 [Layer 4 - Model provider]
-        OLLAMA["Ollama local"]
-        OPENAI["OpenAI optional"]
-    end
-    subgraph OBS [Optional observability]
-        LF["Langfuse :3000"]
-    end
+flowchart LR
+    User["Browser user"]
+    Frontend["React + TypeScript frontend<br/>served by nginx"]
+    Gateway["FastAPI gateway<br/>auth, sessions, trusted context"]
+    N8N["n8n orchestration"]
+    Guardrails["guardrails-service"]
+    Cache["rag-cache-service<br/>semantic cache"]
+    Optimizer["optimizer-service<br/>LangGraph + providers + analytics"]
+    Image["image-analyser-service"]
+    Bridge["Cursor SDK bridge<br/>local host process"]
+    Ollama["Ollama"]
+    OpenAI["OpenAI (optional)"]
+    SQLite["SQLite volumes"]
+    Chroma["ChromaDB"]
+    Langfuse["Langfuse (optional)"]
+    Sandbox["Disposable coding sandbox"]
 
-    UI -->|same-origin /api + HTTP-only session| GW
-    GW -->|trusted identity and policy| N8N
-    N8N --> GR
-    N8N --> RAG
-    N8N --> OPT
-    N8N -->|when an image is attached| IMG
-    OPT --> OLLAMA
-    OPT -. when configured .-> OPENAI
-    OPT -. privacy-safe terminal trace .-> LF
-    N8N -->|answer + Decision Receipt| UI
+    User --> Frontend
+    Frontend -->|same-origin /api| Gateway
+    Gateway -->|trusted org, user, dept, policy| N8N
+    N8N --> Guardrails
+    N8N --> Cache
+    N8N --> Optimizer
+    N8N -->|image path| Image
+    Optimizer --> Ollama
+    Optimizer -. when configured .-> OpenAI
+    Cache --> Chroma
+    Gateway -->|Cursor Agent APIs| Bridge
+    Bridge --> Sandbox
+    Gateway --> SQLite
+    Optimizer --> SQLite
+    Optimizer -. optional export .-> Langfuse
+    N8N -->|answer + receipt| Gateway
+    Gateway --> Frontend
 ```
 
-See [docs/architecture.md](docs/architecture.md) for details and
-[contracts/api-contracts.md](contracts/api-contracts.md) for the API shapes.
-The implementation and product-state handoff for visual design is in
-[docs/ux-ui-designer-handoff.md](docs/ux-ui-designer-handoff.md).
+| Component | Responsibility | Technology | Default host port |
+|---|---|---|---|
+| `frontend` | Web UI and same-origin API entrypoint | React 18, TypeScript, Vite, nginx | `5173` |
+| `gateway-service` | Auth, sessions, role checks, trusted proxying, Cursor bridge proxying | FastAPI, httpx, Argon2 | not host-published |
+| `n8n` | Request orchestration and workflow execution | n8n | `5679` editor only |
+| `guardrails-service` | Input/output safety and cost-governance rules | FastAPI, regex/rules | not host-published |
+| `rag-cache-service` | Semantic cache and placeholder policy endpoint | FastAPI, ChromaDB, sentence-transformers | not host-published |
+| `image-analyser-service` | Local image-analysis path | FastAPI, PyTorch, torchvision | not host-published |
+| `optimizer-service` | Routing, providers, analytics, coding intelligence, observability export | FastAPI, LangGraph, httpx, Langfuse SDK | not host-published |
+| `bridges/cursor-sdk` | Local coding-run bridge | FastAPI, `cursor-sdk` | `8787` by default on host |
+| `Ollama` | Local model provider | Ollama | host-managed, typically `11434` |
+| `docker-compose.langfuse.yml` | Optional observability stack | Langfuse, Postgres, Redis, ClickHouse, MinIO | `3000`, `9090` |
 
-## Policy Intelligence
+## Request lifecycle
 
-MomiHelm **Policy Intelligence** separates a deterministic **Structured Policy Engine**
-(source of truth for enforcement) from a non-authoritative **Policy Evidence Retrieval**
-layer (RAG over policy documents, used for explanation and audit only). Today only a
-minimal structured form exists: `policy_mode` (`conservative`/`balanced`/`aggressive`) is a
-config enum that drives compression and tier selection. `POST /policy/query` is a
-placeholder (returns `{"policies": []}`) and is not wired into the flow — **Policy RAG is
-not implemented**. The product model (hierarchy, presets, Policy Center, effective-policy
-preview, document ingestion + approval, MVP scope, and commercial roadmap) is specified in
-[docs/policy-intelligence-design.md](docs/policy-intelligence-design.md).
+For a standard text request, the implemented flow is:
 
-## Repository layout
+1. The frontend submits a signed-in request through the gateway.
+2. The gateway injects trusted `organization_id`, `user_id`, `dept_id`, and `policy_mode`.
+3. n8n normalizes the request and runs input guardrails.
+4. Blocked requests stop there and return a blocked receipt.
+5. Non-blocked text requests check the semantic cache.
+6. Cache misses call the optimizer for a LangGraph route and tier recommendation.
+7. Execution runs through local Ollama by default or OpenAI when configured and allowed.
+8. Output guardrails, cache store, usage logging, and receipt construction complete the response.
 
+Image requests go through the local image-analysis path and still receive receipt metadata, but they do not currently execute a multimodal LLM path.
+
+Coding-session requests add a second layer: the objective is classified first, then attempts, verification events, and decision evaluations are attached to that session.
+
+## Cursor Agent Coding Run
+
+**Cursor Agent Coding Run — Execute repository tasks safely with model selection, diff review, and validation.**
+
+This feature gives MomiHelm a coding-execution path distinct from normal prompt answering.
+
+- Tasks execute through a **local host bridge** in `bridges/cursor-sdk`, which uses the official `cursor-sdk` package.
+- The UI shows **recommended model** and **selected model** separately before the run.
+- The bridge defaults to a **disposable sandbox** workspace and can be pointed at another clean Git repository only when explicitly configured.
+- Dirty Git worktrees are **hard-blocked** before execution.
+- Changed files, readable diffs for newly created untracked files, and validation results are returned in the result.
+- Validation commands are **allowlisted**, with explicit status and deterministic timeout handling.
+- Raw diffs are returned to the authenticated caller for that run, but are **not persisted by default**.
+- Metadata such as fingerprints, selected/recommended/executed models, workspace kind, validation status, and changed-file paths can be persisted for later analytics.
+
+There is no automatic mutation of the user's source repository. Cursor-generated changes remain confined to the disposable sandbox, and the current workflow does not automatically commit, push, open a PR, merge, or deploy them.
+
+```mermaid
+flowchart LR
+    UI["Playground<br/>Cursor Agent Coding Run"] --> REC["Route recommendation"]
+    REC --> SEL["User selects Cursor model"]
+    SEL --> GW["Gateway /api/cursor-agent/run"]
+    GW --> BR["Local Cursor SDK bridge"]
+    BR --> SAFE["Workspace safety checks"]
+    SAFE --> SDK["Cursor SDK run"]
+    SDK --> DIFF["Collect changed files + diff"]
+    DIFF --> VAL["Run allowlisted validation"]
+    VAL --> PERSIST["Persist safe metadata"]
+    PERSIST --> UI2["Result + diff + validation + routing transparency"]
 ```
+
+## Decision transparency
+
+MomiHelm distinguishes between three routing stages:
+
+- **Recommended**: what MomiHelm advised before execution, based on heuristics and configuration available at the time.
+- **Selected**: what the user or system chose to execute.
+- **Executed**: what actually ran.
+
+That distinction matters because MomiHelm can surface mismatches instead of flattening them into a single story.
+
+### Decision Receipt
+
+The normal request path returns a Decision Receipt that summarizes:
+
+- guardrail outcome;
+- cache status;
+- route and tier;
+- provider and model;
+- estimated and observed token/cost fields where available;
+- optimization reasons and graph path details.
+
+### Routing Transparency
+
+Routing Transparency renders the route as structured stages and includes:
+
+- basis such as `heuristic` or `configured`;
+- reason codes and assumptions;
+- alternatives and cost-comparison context where available;
+- warnings when recommended, selected, and executed stages differ.
+
+### Model Fit
+
+Model Fit is a **post-verification** coding-outcome score. It is not a live routing claim and it is not statistically calibrated confidence.
+
+## Safety, privacy, and governance
+
+### Implemented controls
+
+- input guardrails for prompt injection, obvious secret patterns, low-value prompts, and PII handling;
+- local-only routing constraints when sensitive data is detected;
+- output guardrails for leaked-secret redaction and unsupported claim blocking;
+- server-enforced organization policy mode: `conservative`, `balanced`, `aggressive`;
+- authenticated gateway with HttpOnly session cookies and origin checks for state-changing requests;
+- organization and user scoping enforced server-side;
+- metadata-oriented persistence with prompt fingerprints instead of raw prompt storage in the main usage database;
+- Cursor coding-run workspace safety, dirty-worktree blocking, diff bounding, and validation allowlisting;
+- no automatic mutation of the user's source repository; Cursor-generated changes remain inside the disposable sandbox unless a user explicitly takes them elsewhere.
+
+### Current governance limitations
+
+- `policy_mode` is implemented and enforced, but the broader Structured Policy Engine described in `docs/policy-intelligence-design.md` is not fully built.
+- `POST /policy/query` is currently a placeholder that returns an empty policy list.
+- No learned routing, calibrated confidence model, or evidence-driven organizational policy hierarchy is active in the live runtime.
+
+## Technology stack
+
+| Layer | Verified technology |
+|---|---|
+| Frontend | React, TypeScript, Vite, react-markdown, nginx |
+| Gateway | FastAPI, httpx, Argon2, Pydantic |
+| Orchestration | n8n |
+| Optimization | LangGraph, FastAPI |
+| Providers | Ollama, optional OpenAI |
+| Semantic cache | ChromaDB, sentence-transformers (`all-MiniLM-L6-v2`) |
+| Image path | PyTorch, torchvision |
+| Persistence | SQLite |
+| Coding-agent integration | official `cursor-sdk` package, FastAPI bridge |
+| Observability | optional Langfuse |
+| Evaluation | offline Ragas |
+| Testing | pytest, Node test runner, Docker-based smoke flow |
+
+## Repository structure
+
+```text
 tokenwise/
-  docker-compose.yml          # core application stack
-  docker-compose.web.yml      # public HTTPS deployment override (Caddy + Ollama)
-  docker-compose.langfuse.yml # optional self-hosted Langfuse override
-  .env.example                # local ports and provider configuration
-  .env.web.example            # public web deployment configuration template
-  .env.langfuse.example       # placeholder-only Langfuse configuration
-  momihelm / momihelm.ps1     # lifecycle commands for macOS/Linux and Windows
-  README.md
-  docs/architecture.md        # diagrams + what is real vs mocked
-  docs/ux-ui-designer-handoff.md # product states and visual-design contract
-  docs/langfuse-observability.md # Day 9 setup, privacy, and operations
-  contracts/api-contracts.md  # API contracts (v0)
-    services/
-    gateway-service/          # FastAPI: auth, sessions, roles, policy, protected proxy
-    guardrails-service/       # FastAPI: /health /check/input /check/output
-    rag-cache-service/        # FastAPI: /health /cache/lookup /cache/store /policy/query
-    image-analyser-service/   # FastAPI: /health /analyse
-    optimizer-service/        # FastAPI: /agent/run /providers/* /usage/* /observability/*
-  n8n/
-    tokenwise-skeleton.workflow.json  # automatically imported and published
-    bootstrap.sh                      # guarded, idempotent workflow bootstrap
-    README.md                          # n8n operations and recovery
-  frontend/                   # React + TypeScript build served by Nginx
-  scripts/smoke_test.py       # product-level release smoke test
+├── frontend/                    React + TypeScript application
+├── services/
+│   ├── gateway-service/         Auth, sessions, trusted gateway APIs
+│   ├── guardrails-service/      Safety and cost-governance rules
+│   ├── rag-cache-service/       Semantic cache and placeholder policy endpoint
+│   ├── image-analyser-service/  Local image-analysis service
+│   └── optimizer-service/       LangGraph routing, providers, analytics, observability
+├── bridges/cursor-sdk/          Local Cursor SDK bridge and sandbox safety
+├── connectors/cursor/           Cursor history ingest and advisory routing tools
+├── n8n/                         Runtime workflows and bootstrap scripts
+├── evaluation/                  Offline Ragas evaluation layer
+├── docs/                        Architecture and product design documentation
+├── contracts/                   API contract documentation
+├── scripts/                     Smoke and validation utilities
+├── docker-compose.yml           Default local stack
+├── docker-compose.web.yml       Optional public-web override
+├── docker-compose.langfuse.yml  Optional observability override
+└── momihelm                     Local lifecycle CLI
 ```
 
-## Prerequisites
+## Local setup
 
-- Docker Desktop, installed and running.
-- Git, to clone the repository.
-- One model provider:
-  - Ollama installed locally (recommended for the academic MVP), or
-  - OpenAI enabled and configured in `.env`.
-- Approximately 9 GB free for a first local installation. The core images use
-  roughly 4 GB and `llama3.1:latest` is approximately 4.6 GB.
+### Prerequisites
 
-Node.js and Python are not required on the host for the Docker path.
+- Docker Desktop with Compose support
+- Git
+- one provider path:
+  - local Ollama, recommended for the validated local baseline; or
+  - optional OpenAI credentials if you explicitly enable the external provider
 
-## Quick start
+For the default Docker path, host Node.js and Python are not required.
 
-### macOS / Linux
+### Start the default local stack
+
+#### macOS / Linux
 
 ```bash
 git clone https://github.com/tomeryoel/tokenwise.git
@@ -132,7 +249,7 @@ cd tokenwise
 ./momihelm start
 ```
 
-### Windows PowerShell
+#### Windows PowerShell
 
 ```powershell
 git clone https://github.com/tomeryoel/tokenwise.git
@@ -141,321 +258,172 @@ Set-Location tokenwise
 .\momihelm.ps1 start
 ```
 
-`doctor` creates an ignored local `.env` from `.env.example`, then validates
-Docker, Compose, the selected provider, the Ollama model, and the Compose
-configuration. `start` can pull a missing Ollama model after warning about the
-download size. It then:
+`./momihelm doctor` creates a local `.env` from `.env.example` if needed, checks Docker, validates the provider, and verifies the Compose configuration.
 
-1. builds the committed source,
-2. imports and publishes changed n8n workflows automatically,
-3. starts services in health-checked dependency order,
-4. waits for the production frontend, and
-5. opens MomiHelm at http://127.0.0.1:5173.
+`./momihelm start`:
 
-On first launch, MomiHelm asks you to create the organization owner account.
-After that, every Playground, Dashboard, and Admin request requires an
-HTTP-only session cookie. Owners can create member and admin accounts from
-Admin. Members receive user-scoped Dashboard data; owners and admins receive
-organization-scoped data. Every user can change their own password from
-**Account**; doing so revokes their other active sessions.
+1. loads `.env`;
+2. validates provider readiness;
+3. stops the frontend, gateway, and n8n before workflow bootstrap;
+4. builds and starts the Compose stack;
+5. waits for the frontend health check;
+6. opens the frontend URL when the host supports it.
 
-The frontend is published to the host at `127.0.0.1:5173`. The n8n editor is
-also available on loopback only at `127.0.0.1:5679` for local diagnostics
-(gateway skeleton: `/workflow/tokenwiseskeleton`). The gateway and Python
-services remain private inside the Docker network; webhook traffic stays on
-`http://n8n:5678` and is not host-published. For HTTPS deployment, set
-`MOMIHELM_COOKIE_SECURE=true` and configure the exact public origin in
-`MOMIHELM_ALLOWED_ORIGINS`.
+### Default local URLs
 
-For a public internet deployment with automatic HTTPS, see
-[docs/web-deployment.md](docs/web-deployment.md) and use `./momihelm web-start`.
-
-For Cursor IDE integration, see [docs/cursor-connector.md](docs/cursor-connector.md)
-and run `./momihelm cursor-sync`.
-
-For the experimental Cursor Agent Coding Run bridge, see
-[docs/cursor-agent-bridge.md](docs/cursor-agent-bridge.md). Use
-`./momihelm cursor-bridge` and optional `./momihelm cursor-bridge-doctor`.
-
-### Lifecycle commands
-
-| Action | macOS / Linux | Windows PowerShell |
-|---|---|---|
-| Diagnose setup | `./momihelm doctor` | `.\momihelm.ps1 doctor` |
-| Start | `./momihelm start` | `.\momihelm.ps1 start` |
-| Status | `./momihelm status` | `.\momihelm.ps1 status` |
-| Follow logs | `./momihelm logs` | `.\momihelm.ps1 logs` |
-| Release smoke test | `./momihelm smoke` | `.\momihelm.ps1 smoke` |
-| Stop, preserve data | `./momihelm stop` | `.\momihelm.ps1 stop` |
-
-The running stack exposes:
-
-| Component | URL |
+| Surface | URL |
 |---|---|
-| MomiHelm UI and authenticated API | http://127.0.0.1:5173 |
-| n8n editor (loopback only) | http://127.0.0.1:5679 |
-| Gateway skeleton workflow | http://127.0.0.1:5679/workflow/tokenwiseskeleton |
+| MomiHelm UI | `http://127.0.0.1:5173` |
+| n8n editor | `http://127.0.0.1:5679` |
+| n8n skeleton workflow | `http://127.0.0.1:5679/workflow/tokenwiseskeleton` |
 
-Print these with `./momihelm n8n-url`. Webhook and Python service health
-endpoints remain Docker-private (`http://n8n:5678/webhook/tokenwise`). Use
-`docker compose exec <service> ...` for backend diagnostics. For advanced use,
-`docker compose up -d --build` still works directly when the committed
-workflows are unchanged. If workflow JSON changes while n8n is already running,
-the guarded `n8n-init` service refuses to modify the live SQLite database and
-directs you to `./momihelm start` or `.\momihelm.ps1 start`. The lifecycle
-commands are recommended because they stop n8n before workflow updates,
-validate the provider, and wait for readiness.
+The Python microservices and webhook endpoints remain private inside the Docker network by default.
 
-## Add Langfuse observability (Day 9, optional)
+### First-run experience
 
-The core command above remains lightweight. To add the self-hosted Langfuse stack,
-create an ignored local environment file from the placeholder-only example, replace
-every `CHANGE_ME` value, and start both Compose files:
+On first launch, MomiHelm requires creation of an owner account. After setup, all browser actions run behind an authenticated session; owners and admins can manage policy and users; members see user-scoped analytics; and each user can change their password from `Account`, which revokes other active sessions.
 
-```powershell
-Copy-Item .env.langfuse.example .env.langfuse
-docker compose --env-file .env.langfuse -f docker-compose.yml -f docker-compose.langfuse.yml up -d --build
-```
+### Cursor bridge setup
 
-macOS/Linux equivalent:
+The Cursor coding path is separate from the base stack:
+
+1. add the Cursor-specific variables to `.env`;
+2. run the stack with `./momihelm start`;
+3. optionally run `./momihelm cursor-bridge-doctor`;
+4. start the local bridge with `./momihelm cursor-bridge`.
+
+### Verify and stop
 
 ```bash
-cp .env.langfuse.example .env.langfuse
-docker compose --env-file .env.langfuse -f docker-compose.yml -f docker-compose.langfuse.yml up -d --build
+./momihelm status
+./momihelm smoke
+./momihelm stop
 ```
 
-This additionally starts Langfuse Web at http://localhost:3000 and its official
-self-hosted dependencies. Verify it with
-`GET http://localhost:3000/api/public/health`, then inspect MomiHelm export state at
-`GET http://optimizer-service:8000/observability/status` from inside the Compose
-network. Full setup, privacy guarantees,
-trace stages, and troubleshooting are in
-[docs/langfuse-observability.md](docs/langfuse-observability.md).
+The smoke test runs the project-level release verification container against the existing stack.
 
-## Test it
+## Configuration
 
-### 1. Automated release smoke test
+### Core local runtime
+
+Key local runtime variables:
+
+- `MOMIHELM_HOST`, `MOMIHELM_FRONTEND_PORT`
+- `MOMIHELM_SESSION_TTL_HOURS`, `MOMIHELM_COOKIE_SECURE`, `MOMIHELM_ALLOWED_ORIGINS`
+- `MOMIHELM_MAX_PROMPT_CHARS`, `MOMIHELM_MAX_IMAGE_BASE64_CHARS`
+
+### Providers
+
+- Local Ollama: `OLLAMA_HOST_URL`, `OLLAMA_BASE_URL`, `OLLAMA_LOCAL_MODEL`, `OLLAMA_CHEAP_MODEL`, `OLLAMA_BALANCED_MODEL`, `OLLAMA_REQUEST_TIMEOUT_SECONDS`
+- Optional OpenAI: `ENABLE_OPENAI_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_CHEAP_MODEL`, `OPENAI_BALANCED_MODEL`, `OPENAI_PREMIUM_MODEL`, `OPENAI_REQUEST_TIMEOUT_SECONDS`
+
+### Cursor integration
+
+- Connector: `MOMIHELM_CONNECTOR_TOKEN`, `MOMIHELM_CONNECTOR_USER_EMAIL`, `MOMIHELM_GATEWAY_URL`
+- Bridge: `CURSOR_API_KEY`, `MOMIHELM_CURSOR_BRIDGE_TOKEN`, `MOMIHELM_CURSOR_BRIDGE_URL`, `MOMIHELM_CURSOR_BRIDGE_HOST`, `MOMIHELM_CURSOR_BRIDGE_PORT`, `MOMIHELM_CURSOR_BRIDGE_CWD`, `MOMIHELM_CURSOR_BRIDGE_SANDBOX`
+
+### Optional overlays
+
+- `docker-compose.web.yml` adds an alternate public-web deployment shape with Caddy and optional in-Compose Ollama.
+- `docker-compose.langfuse.yml` adds optional Langfuse infrastructure for observability.
+
+The primary validated path remains the local loopback deployment in `docker-compose.yml`.
+
+## Testing and verification
+
+Representative verification commands:
+
+### Stack-level
 
 ```bash
+./momihelm doctor
 ./momihelm smoke
 ```
 
-```powershell
-.\momihelm.ps1 smoke
-```
-
-The smoke test verifies the provider-error contract, new text execution,
-semantic cache reuse, PII redaction/local routing, prompt-injection blocking,
-low-complexity image handling, and usage analytics.
-
-### 2. Health checks
+### Frontend
 
 ```bash
-docker compose ps
-curl -fsS http://127.0.0.1:5173/healthz
-```
-
-Compose reports the internal services as healthy without publishing their ports.
-
-### 3. From the UI
-
-Open http://127.0.0.1:5173, create the first owner account or sign in, then
-choose a **Coding session** or **Quick question** in Playground. A Coding
-session lets you review the classified objective, run one or more attempts,
-record the outcome, and inspect Model Fit and Cost-to-Success. Quick question
-returns the answer and Decision Receipt without outcome tracking. Owners and
-admins set the server-enforced organization policy in **Admin**.
-
-> Workflow import and publication are automatic. If a service or provider fails,
-> the UI reports the real pipeline outcome and never invents a mock answer.
-
-## Semantic cache (Day 4)
-
-The `rag-cache-service` is a **real** semantic cache:
-
-- Embeddings: `sentence-transformers/all-MiniLM-L6-v2` (CPU only).
-- Store: ChromaDB persistent client at `/app/data/chroma` on the `rag_cache_data`
-  volume; the HF model is cached at `/app/data/hf` on the same volume so it is not
-  re-downloaded on every restart. **Cache entries survive container restarts.**
-- Similarity: cosine, `confidence = clamp(1 - cosine_distance, 0, 1)`; default
-  threshold `0.88` (env `CACHE_SIMILARITY_THRESHOLD`, overridable per request).
-- Tenant isolation: lookups require both trusted `organization_id` and `dept_id`
-  metadata. Legacy direct calls use the isolated `legacy-local` organization.
-- Sensitive requests (`contains_sensitive_data=true`, e.g. PII) are never searched
-  or stored.
-
-On a cache hit, n8n **skips the optimizer and model provider**, runs the cached answer
-through the output guardrail, and returns it with `savings_source=semantic_cache`.
-On a miss, the model path runs and the safe final answer is stored (best-effort).
-
-> First lookup/store after a cold start downloads the MiniLM model (~90 MB) into
-> the volume; subsequent restarts reuse it.
-
-## Optimizer LangGraph (Day 5)
-
-The `optimizer-service` is a real, deterministic, **conditional** **LangGraph**
-state graph (`services/optimizer-service/graph.py`). A router
-(`route_request_path`) uses conditional edges to pick one of five paths -
-`reject_path`, `cache_path`, `local_only_path`, `vision_path`,
-`standard_optimization_path` - and the standard path has a second conditional edge
-(`should_recommend_compression`) that runs the compression node only when needed.
-All paths converge into cost estimation + final plan.
-
-It returns a structured Optimization Plan (routing tier, compression
-recommendation, fallback plan, cost/savings estimate, decision reasons) plus graph
-observability (`graph_path`, `branch_reason`, `executed_nodes`). Policy modes
-(`conservative`/`balanced`/`aggressive`) can produce different plans for the same
-prompt. See [docs/architecture.md](docs/architecture.md) for the graph diagram and
-the command to print the compiled graph as Mermaid.
-
-Run the optimizer unit tests without Docker/n8n:
-
-```powershell
-cd services/optimizer-service
-pip install -r requirements.txt pytest
-python -m pytest -q
-```
-
-## Layer 4 model execution (Day 6)
-
-The optimizer-service now executes real models via `POST /providers/execute`.
-Provider adapters live in `services/optimizer-service/providers/` as an MVP
-packaging decision (four-service architecture preserved).
-
-- **Ollama (local):** `POST {OLLAMA_BASE_URL}/api/chat` with `stream=false`.
-  Default model: `llama3.1:latest` (detected on host). Docker uses
-  `http://host.docker.internal:11434` via `extra_hosts`.
-- **OpenAI (optional):** Responses API, enabled only when
-  `ENABLE_OPENAI_PROVIDER=true` and `OPENAI_API_KEY` is set. Disabled safely
-  when not configured.
-- **Never commit API keys.** Use the root `.env` copied from `.env.example`;
-  `.env` is gitignored.
-
-Provider health is available internally at
-`http://optimizer-service:8000/providers/health`.
-
-## Usage database, cost avoidance, and ROI (Days 7 and 10)
-
-The optimizer-service persists terminal request outcomes in SQLite at
-`/app/data/usage/tokenwise.db` (Docker volume `usage_data`).
-
-- `POST /usage/log` — idempotent request logging (n8n calls on every terminal path)
-- `GET /usage/summary` — aggregated metrics for the Dashboard; accepts optional
-  positive `operating_cost_usd` for an explicit ROI scenario
-- `GET /usage/recent` — privacy-safe recent request list (no prompts)
-
-Dashboard fetches analytics through the authenticated same-origin gateway. The
-gateway injects `organization_id`; member requests also receive a mandatory
-`user_id` filter.
-
-**Primary cost-avoidance metric:** `actual_cost_saved` when known, else
-`estimated_savings` (one value per request, never double-counted). The response
-reports actual and estimated coverage counts and keeps `total_savings` as a
-backward-compatible alias for `total_modeled_cost_avoidance`.
-
-**ROI:** without `operating_cost_usd`, ROI remains `null` with
-`roi_status: operating_cost_not_modeled`. When a positive scenario cost is
-supplied, ROI is `(modeled cost avoidance - operating cost) / operating cost`.
-This keeps the scenario assumption explicit and avoids presenting local API cost
-as total operating cost.
-
-Policy-mode request counts and cost avoidance are reported separately for
-`conservative`, `balanced`, and `aggressive`. `premium_usage_rate` counts actual
-premium executions; `premium_requested_rate` reports premium requests.
-
-**Privacy:** only SHA-256 prompt fingerprints are stored in usage SQLite; no raw
-prompts, PII, or secrets. n8n is configured not to retain new successful, failed,
-or manual execution payloads. Existing local execution history is preserved
-until its owner explicitly approves deletion.
-
-## Coding decision intelligence
-
-Verified Playground coding sessions persist privacy-safe attempts, context
-characteristics, verification events, and versioned decision evaluations.
-`GET /coding/analytics/summary` turns the latest evaluation for each in-scope
-session into the Dashboard's Model Fit, Cost-to-Success, route-suitability, task
-breakdown, and top-recommendation views.
-
-The authenticated gateway injects organization scope. Members are restricted to
-their own user ID; managers may apply a department filter. Every aggregate
-discloses its sample size and evidence status. Missing scores and incomplete
-local compute cost remain unavailable instead of being represented as zero.
-
-The Dashboard deliberately separates coding decision intelligence from the
-request-level usage and cost-avoidance analytics below it.
-
-Development reset (optional): `python -m usage.reset_db --force`
-
-## Langfuse observability (Day 9)
-
-Every terminal n8n path already calls `POST /usage/log`. After SQLite persistence,
-the optimizer-service exports one deterministic Langfuse trace for that `request_id`.
-The trace contains only structured routing, guardrail, cache, provider, token, cost,
-latency, and savings facts. Raw prompts and generated answers are never exported.
-
-- Tracing is opt-in through `docker-compose.langfuse.yml` and `.env.langfuse`.
-- Export is idempotent per `request_id`; failures are recorded and retried on a later call.
-- Observability is fail-open: SQLite logging and the user response still succeed if
-  Langfuse is unavailable.
-- `GET /observability/status` reports configuration and aggregate export state.
-- `GET /observability/traces/{request_id}` reports the trace ID, URL, attempts, and
-  last error without exposing credentials or prompt content.
-
-The exporter and its tests live under
-`services/optimizer-service/observability/` and
-`services/optimizer-service/test_observability.py`.
-
-## Offline AI evaluation (Ragas)
-
-MomiHelm uses **[Ragas](https://docs.ragas.io) `0.4.3`** as an **offline**
-evaluation layer (lecturer requirement). It runs **real** Ragas metrics on
-**real** generated responses and saves reviewable artifacts. It is **not** in the
-real-time request path — Playground users never wait for Ragas.
-
-It compares an **un-optimized direct baseline** (Ollama, bypassing MomiHelm)
-against the **real MomiHelm n8n pipeline**, measuring whether MomiHelm reduces
-modeled cost / tokens / unnecessary model calls while preserving answer quality.
-
-- Judge: local Ollama `llama3.1:latest` (via the OpenAI-compatible endpoint).
-- Embeddings: local `sentence-transformers/all-MiniLM-L6-v2`.
-- Metrics: Semantic Similarity, Response Relevancy, Factual Correctness, and a
-  custom MomiHelm grounding rubric; plus the derived `quality_preservation_ratio`.
-- Ragas is **not** RAG, **not** the semantic cache, **not** Langfuse, and **not**
-  the usage dashboard.
-
-```powershell
-# from repo root, with the MomiHelm stack up and Ollama running
-evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation --env-check
-evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation --mode smoke
-evaluation\.venv\Scripts\python.exe -m evaluation.ragas_eval.run_evaluation --mode full
-```
-
-See [evaluation/README.md](evaluation/README.md) for setup and
-[docs/evaluation/ragas-evaluation-report.md](docs/evaluation/ragas-evaluation-report.md)
-for the canonical reviewed report.
-
-## What is still mocked
-
-- Prompt compression is recommended only (not executed).
-- Vision-tier multimodal model execution (classification runs locally; provider
-  vision tier is not executed - every attachment returns structured, honest
-  local analysis and never falls through to a text model that cannot see it).
-- Policy Intelligence runtime (Policy Center, Policy Evidence Retrieval,
-  inheritance) is **documentation only** — `POST /policy/query` remains a
-  placeholder returning `{"policies": []}`. See
-  [docs/policy-intelligence-design.md](docs/policy-intelligence-design.md).
-
-Real: guardrails (Day 3), semantic cache (Day 4), LangGraph optimizer (Day 5),
-Layer 4 provider execution (Day 6), usage DB + Dashboard (Day 7),
-PyTorch image analyser + Playground upload (Day 8), privacy-safe Langfuse tracing
-(Day 9), offline Ragas evaluation, MomiHelm product-answer grounding, and the
-verified Playground coding-intelligence vertical slice.
-
-## Frontend without Docker (optional)
-
-```powershell
 cd frontend
 npm ci
-Copy-Item .env.example .env
-npm run dev
+npx tsc --noEmit
+npx vite build
 ```
+
+Frontend routing-transparency coverage lives in `frontend/src/routingTransparency.test.ts`.
+
+### Backend and service tests
+
+```bash
+cd services/gateway-service && python -m pytest -q
+cd services/guardrails-service && python -m pytest -q
+cd services/optimizer-service && python -m pytest -q
+cd services/image-analyser-service && python -m pytest -q
+```
+
+Focused coverage also exists in `services/optimizer-service/test_routing_receipt.py`, `services/optimizer-service/test_cursor_sdk_persist.py`, `services/optimizer-service/test_cursor_router.py`, `services/guardrails-service/test_main.py`, `bridges/cursor-sdk/tests/test_workspace_safety.py`, `scripts/test_routing_receipt_contract.py`, and `n8n/test_routing_receipt.mjs`.
+
+### Offline evaluation
+
+See `evaluation/README.md` for the offline Ragas workflow. It is separate from the live request path.
+
+## Demo flows
+
+### Quick Question
+
+Example: "What is a binary search in one sentence?" MomiHelm runs guardrails, may reuse a semantic-cache hit or route to local Ollama, and returns the answer with Decision Receipt and Routing Transparency.
+
+### Coding Session
+
+Example: "Fix a flaky auth unit test and keep the build green." MomiHelm classifies the objective first, lets the user review or correct the use-case classification and workflow, groups attempts under one coding session, and uses later verification to drive Model Fit and Cost-to-Success.
+
+### Cursor Agent Coding Run
+
+Example: "Update `hello.py` so `greet()` returns a personalized greeting, then run `pytest`." MomiHelm shows a recommendation and available Cursor models, executes through the local bridge, surfaces changed files, diff, validation output, and routing transparency, and persists safe metadata rather than raw repository content.
+
+## Current implementation status
+
+| Area | Status | Notes |
+|---|---|---|
+| Guardrails | Implemented | Deterministic regex/rule checks for injection, secrets, PII, and low-value prompts |
+| Semantic cache | Implemented | Chroma-backed, tenant-scoped, sensitive requests excluded |
+| Local routing | Implemented | Ollama is the default path |
+| External provider routing | Implemented with limitations | Optional OpenAI path when configured |
+| Routing transparency | Implemented | Recommended, selected, executed stages are rendered explicitly |
+| Decision Receipt | Implemented | Returned on normal request path |
+| Model Fit / Cost-to-Success | Implemented with limitations | Requires coding-session evidence and can remain unavailable/provisional |
+| Cursor coding execution | Implemented with limitations | Local bridge, disposable sandbox, validation allowlist, no auto-commit/push/merge |
+| Usage and cost telemetry | Implemented | SQLite-backed with dashboard aggregation |
+| Langfuse observability | Implemented as optional overlay | Not part of the default local stack |
+| Policy intelligence hierarchy | Planned / partial | `policy_mode` is real; policy retrieval is still a stub |
+| Evidence-based routing | Planned | Current routing is heuristic/configured, not evidence-learned |
+| Calibrated confidence | Planned | Current confidence fields are not calibrated |
+| Persistent project-centric coding workspace | Planned | Default is disposable sandbox |
+| Real multimodal model execution | Planned / partial | Local image analysis exists; multimodal provider execution is not the current path |
+| Automated deployment | Planned | Local and optional web deployment shapes exist, but this repository should not be presented as production-ready deployment automation |
+
+## Roadmap
+
+The next credible areas are:
+
+- fuller Structured Policy Engine and effective-policy resolution;
+- policy evidence retrieval for explanation, not enforcement;
+- evidence-based recommendations beyond heuristics;
+- stronger confidence and cohort thresholds;
+- richer cross-session coding intelligence and manager analytics;
+- broader offline evaluation and deployment hardening.
+
+## Project context
+
+MomiHelm was developed as an AI Engineering project to demonstrate a platform spanning user experience, orchestration, optimization, coding execution, persistence, observability, and governance.
+
+## Screenshots
+
+Product screenshots will be added after final documentation assets are selected. The current README intentionally avoids references to temporary or uncommitted image files.
+
+## License
+
+No license file is present in the repository, so this README does not claim an open-source license.
+
+## Contributing
+
+This repository does not currently define a public contribution workflow. If you plan to extend it, start with `docs/architecture.md`, `docs/cursor-agent-bridge.md`, `docs/cursor-connector.md`, `docs/model-fit-cost-to-success-spec.md`, and `docs/policy-intelligence-design.md`.
